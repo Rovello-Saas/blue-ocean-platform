@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Environment variables (NEVER commit)
+.env
+*.env
+
+# Credentials (NEVER commit)
+credentials/
+*.json
+!config/defaults.yaml
+!railway.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Streamlit (keep config.toml for deployment)
+.streamlit/secrets.toml
+
+# Shopify dev config
+shopify.app.toml
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/

@@ -1,0 +1,74 @@
+# =============================================================================
+# Qoveliqo Ads - Default Configuration
+# These values are used as defaults and can be overridden via the dashboard.
+# Dashboard settings are stored in the Google Sheet Config tab and take priority.
+# =============================================================================
+
+global:
+  countries:
+    - code: DE
+      name: Germany
+      language: de
+      currency: EUR
+  timezone: Europe/Berlin
+
+research:
+  auto_discovery_enabled: false  # Enable automatic scheduled discovery
+  auto_discovery_time: "03:00"  # Time to run daily (24h format, e.g. "03:00")
+  min_monthly_search_volume: 500
+  max_competitors: 30
+  min_differentiation_score: 0
+  research_frequency_hours: 24
+  category_focus: []  # Empty = all categories
+  min_aliexpress_rating: 4.5
+  min_aliexpress_orders: 500
+  keywords_per_run: 150
+
+shipping:
+  model: free  # free | paid | threshold
+  charge_amount: 0.0
+  free_threshold: 0.0
+
+economics:
+  min_selling_price: 25.0  # EUR — skip products with competitor price below this
+  max_selling_price: 200.0  # EUR — skip products with competitor price above this
+  assumed_conversion_rate: 0.01  # 1% for basic test pages
+  safety_factor: 1.5
+  min_gross_margin_pct: 0.30  # 30%
+  test_budget_multiplier: 3.0
+  transaction_fee_pct: 0.02  # 2% Shopify
+  payment_fee_pct: 0.029  # 2.9% payment processor
+  payment_fixed_fee: 0.30  # EUR 0.30 per transaction
+
+kill_rules:
+  kill_spend_multiplier: 3.0  # Kill after spending 3x selling price with 0 conversions
+  max_days_below_broas: 3  # Kill after 3 consecutive days below break-even ROAS
+  min_test_duration_days: 3  # Don't kill before 3 days of testing
+
+scale_rules:
+  scale_threshold_pct: 0.30  # Scale when ROAS is 30% above break-even
+  min_days_before_scale: 2  # Must be above threshold for 2 consecutive days
+  scale_increment_pct: 0.20  # Increase budget by 20%
+  scale_frequency_days: 3  # Scale at most every 3 days
+  max_daily_budget: 100.0  # EUR max daily budget cap
+
+winner_rules:
+  min_conversions: 3
+  min_test_duration_days: 3
+
+monitoring:
+  competitor_price_enabled: true
+  competitor_price_frequency_days: 7
+  price_change_alert_threshold_pct: 0.10  # 10%
+  stock_monitoring_enabled: false
+
+ads:
+  testing_campaign_daily_budget: 75.0  # EUR
+  winners_campaign_daily_budget: 150.0  # EUR
+  performance_check_interval_hours: 2
+
+polling:
+  agent_cost_check_interval_minutes: 30
+
+notifications:
+  dashboard_enabled: true
