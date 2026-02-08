@@ -15,13 +15,12 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 from src.core.config import (
     AppConfig,
     GOOGLE_MERCHANT_CENTER_ID,
-    GOOGLE_SHEETS_CREDENTIALS_PATH,
+    get_service_account_credentials,
 )
 from src.core.models import Product, ProductStatus
 
@@ -54,8 +53,7 @@ class MerchantCenterLabels:
         if self._service:
             return self._service
 
-        creds = service_account.Credentials.from_service_account_file(
-            GOOGLE_SHEETS_CREDENTIALS_PATH,
+        creds = get_service_account_credentials(
             scopes=["https://www.googleapis.com/auth/content"],
         )
 

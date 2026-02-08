@@ -257,6 +257,32 @@ def get_env(key: str, default: str = "") -> str:
     return os.getenv(key, default)
 
 
+def get_service_account_credentials(scopes: list[str] = None):
+    """
+    Load Google service account credentials.
+    Supports two modes:
+      1. Local: reads from GOOGLE_SHEETS_CREDENTIALS_PATH file
+      2. Cloud: reads from GOOGLE_SERVICE_ACCOUNT_JSON env var (base64-encoded)
+    """
+    import json
+    import base64
+    from google.oauth2.service_account import Credentials
+
+    # Try base64 env var first (cloud deployment)
+    b64_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+    if b64_json:
+        try:
+            decoded = base64.b64decode(b64_json)
+            info = json.loads(decoded)
+            return Credentials.from_service_account_info(info, scopes=scopes)
+        except Exception as e:
+            logging.getLogger(__name__).error("Failed to decode GOOGLE_SERVICE_ACCOUNT_JSON: %s", e)
+
+    # Fall back to file (local development)
+    creds_path = get_env("GOOGLE_SHEETS_CREDENTIALS_PATH", "credentials/google_service_account.json")
+    return Credentials.from_service_account_file(creds_path, scopes=scopes)
+
+
 # API credentials
 OPENAI_API_KEY = get_env("OPENAI_API_KEY")
 GOOGLE_ADS_DEVELOPER_TOKEN = get_env("GOOGLE_ADS_DEVELOPER_TOKEN")

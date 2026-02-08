@@ -68,7 +68,7 @@ def start_scheduler():
         return None
 
 
-def start_dashboard():
+def start_dashboard(port: str = None):
     """Start the Streamlit dashboard in a subprocess."""
     logger.info("Starting Streamlit dashboard...")
 
@@ -77,17 +77,21 @@ def start_dashboard():
         "dashboard", "app.py"
     )
 
+    # Use PORT env var (Railway), --port arg, or default 8501
+    serve_port = port or os.environ.get("PORT", "8501")
+
     process = subprocess.Popen(
         [
             sys.executable, "-m", "streamlit", "run",
             dashboard_path,
-            "--server.port", "8501",
+            "--server.port", serve_port,
+            "--server.address", "0.0.0.0",
             "--server.headless", "true",
         ],
         cwd=os.path.dirname(os.path.abspath(__file__)),
     )
 
-    logger.info("Dashboard started on http://localhost:8501")
+    logger.info("Dashboard started on http://0.0.0.0:%s", serve_port)
     return process
 
 

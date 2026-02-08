@@ -17,9 +17,8 @@ import logging
 from typing import Optional
 
 import gspread
-from google.oauth2.service_account import Credentials
 
-from src.core.config import GOOGLE_SHEETS_CREDENTIALS_PATH, GOOGLE_SHEETS_SPREADSHEET_ID
+from src.core.config import GOOGLE_SHEETS_CREDENTIALS_PATH, GOOGLE_SHEETS_SPREADSHEET_ID, get_service_account_credentials
 from src.core.interfaces import DataStore
 from src.core.models import (
     Product, KeywordResearch, ActionLog, Notification, CountryConfig,
@@ -109,13 +108,10 @@ class GoogleSheetsStore(DataStore):
             return
 
         try:
-            logger.info("Connecting with credentials: %s", GOOGLE_SHEETS_CREDENTIALS_PATH)
+            logger.info("Connecting to Google Sheets...")
             logger.info("Spreadsheet ID: '%s'", GOOGLE_SHEETS_SPREADSHEET_ID)
-            logger.info("Spreadsheet ID length: %d", len(GOOGLE_SHEETS_SPREADSHEET_ID.strip()))
 
-            creds = Credentials.from_service_account_file(
-                GOOGLE_SHEETS_CREDENTIALS_PATH, scopes=SCOPES
-            )
+            creds = get_service_account_credentials(scopes=SCOPES)
             self._client = gspread.authorize(creds)
             logger.info("Authorized successfully, opening spreadsheet...")
             self._spreadsheet = self._client.open_by_key(GOOGLE_SHEETS_SPREADSHEET_ID.strip())
