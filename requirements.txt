@@ -34,6 +34,10 @@ httpx>=0.27.0
 
 # Image processing
 Pillow>=10.4.0
+rembg>=2.0.57
+
+# Fal.ai (Image Studio)
+# Uses REST API directly via requests (no extra SDK needed)
 
 # NLP (for competition analysis)
 scikit-learn>=1.5.0

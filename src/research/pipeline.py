@@ -362,6 +362,7 @@ class ResearchPipeline:
 
         # Google Shopping URL (from competition analysis or generated)
         google_shopping_url = kw_data.get("google_shopping_url", "")
+        competitor_pdp_url = kw_data.get("competitor_pdp_url", "")
 
         # Create keyword record
         kw = KeywordResearch(
@@ -380,6 +381,7 @@ class ResearchPipeline:
             median_competitor_price=kw_data.get("median_competitor_price", 0),
             estimated_selling_price=kw_data.get("median_competitor_price", 0),
             google_shopping_url=google_shopping_url,
+            competitor_pdp_url=competitor_pdp_url,
             aliexpress_url=ali_match.get("url", ""),
             aliexpress_price=ali_match.get("price", 0),
             aliexpress_rating=ali_match.get("rating", 0),
@@ -401,6 +403,7 @@ class ResearchPipeline:
             differentiation_score=kw_data.get("differentiation_score", 0),
             competition_type=kw_data.get("competition_type", "unknown"),
             google_shopping_url=google_shopping_url,
+            competitor_pdp_url=competitor_pdp_url,
             aliexpress_url=ali_match.get("url", ""),
             aliexpress_price=ali_match.get("price", 0),
             aliexpress_rating=ali_match.get("rating", 0),

@@ -48,6 +48,7 @@ class ShopifyListingManager(ProductListingService):
         meta_description: str = "",
         tags: str = "",
         product_type: str = "",
+        key_features_html: str = "",
     ) -> Optional[dict]:
         """
         Create a product listing on Shopify.
@@ -55,13 +56,14 @@ class ShopifyListingManager(ProductListingService):
         Args:
             product: Product model
             title: Product title
-            description_html: HTML product description
+            description_html: HTML product description (body_html)
             images: List of image bytes
             price: Product price
             meta_title: SEO meta title
             meta_description: SEO meta description
             tags: Comma-separated tags
             product_type: Product type/category
+            key_features_html: HTML bullet points for above-CTA metafield
 
         Returns:
             dict with shopify_product_id and shopify_product_url, or None
@@ -74,7 +76,7 @@ class ShopifyListingManager(ProductListingService):
                     "body_html": description_html,
                     "product_type": product_type,
                     "tags": tags,
-                    "status": "active",
+                    "status": "draft",  # Created as draft — publish manually when ready
                     "variants": [
                         {
                             "price": str(price),
@@ -121,6 +123,16 @@ class ShopifyListingManager(ProductListingService):
                 "Created Shopify listing: %s (ID: %s)",
                 title[:50], shopify_id
             )
+
+            # Set key_features metafield (displayed above CTA by theme)
+            if key_features_html and shopify_id:
+                self.set_product_metafield(
+                    shopify_id,
+                    namespace="custom",
+                    key="key_features",
+                    value=key_features_html,
+                    value_type="multi_line_text_field",
+                )
 
             return {
                 "shopify_product_id": shopify_id,

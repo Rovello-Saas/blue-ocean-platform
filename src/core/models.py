@@ -100,6 +100,7 @@ class KeywordResearch:
     median_competitor_price: float = 0.0
     estimated_selling_price: float = 0.0
     google_shopping_url: str = ""  # link to Google Shopping results for this keyword
+    competitor_pdp_url: str = ""  # top competitor's actual product page URL
     aliexpress_url: str = ""
     aliexpress_price: float = 0.0
     aliexpress_rating: float = 0.0
@@ -137,6 +138,7 @@ class Product:
 
     # Sourcing
     google_shopping_url: str = ""  # link to competitor Google Shopping results
+    competitor_pdp_url: str = ""  # top competitor's actual product page URL
     aliexpress_url: str = ""
     aliexpress_price: float = 0.0
     aliexpress_rating: float = 0.0
@@ -269,6 +271,108 @@ class CountryConfig:
     language: str = "de"
     currency: str = "EUR"
     enabled: bool = True
+
+
+# ---------------------------------------------------------------------------
+# Image Studio Models
+# ---------------------------------------------------------------------------
+
+class ImageJobStatus(str, Enum):
+    """Status of an image generation job."""
+    PENDING = "pending"
+    GENERATING = "generating"
+    REVIEW = "review"          # waiting for user approval
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    REGENERATING = "regenerating"
+    UPLOADED = "uploaded"       # pushed to Shopify / Drive
+    FAILED = "failed"
+    ARCHIVED = "archived"      # kept for history, replaced by a newer attempt
+
+
+class ImageGeneratorType(str, Enum):
+    """Available image generator backends."""
+    OPENAI_GPT_IMAGE = "gpt-image-1"
+    GOOGLE_IMAGEN_4 = "google-imagen-4"
+    GOOGLE_IMAGEN_4_FAST = "google-imagen-4-fast"
+    FAL_FLUX_PRO = "fal-flux-pro"
+    FAL_FLUX_DEV = "fal-flux-dev"
+    FAL_FLUX_SCHNELL = "fal-flux-schnell"
+
+
+@dataclass
+class ImageRequest:
+    """A single image generation request within a job."""
+    request_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    image_index: int = 0           # position in the set (1-based)
+    prompt: str = ""
+    negative_prompt: str = ""
+    text_labels: str = ""          # specific text/labels to include in the image
+    text_overlay: bool = False     # if True, use Pillow to overlay text (guaranteed legible)
+    generator: str = ImageGeneratorType.OPENAI_GPT_IMAGE.value
+    reference_image_url: str = ""  # optional reference image
+    status: str = ImageJobStatus.PENDING.value
+    image_url: str = ""            # generated image URL or base64 data ref
+    image_data: bytes = field(default=b"", repr=False)
+    feedback: str = ""             # user feedback when rejected
+    retry_count: int = 0
+    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        d.pop("image_data", None)  # Don't serialize binary data
+        return d
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ImageRequest":
+        valid_fields = {f.name for f in cls.__dataclass_fields__.values()}
+        filtered = {k: v for k, v in data.items() if k in valid_fields and k != "image_data"}
+        return cls(**filtered)
+
+
+@dataclass
+class ImageJob:
+    """
+    A batch image generation job for a product.
+    Contains multiple ImageRequests (one per image).
+    """
+    job_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    product_id: str = ""
+    product_keyword: str = ""
+    num_images: int = 4
+    default_generator: str = ImageGeneratorType.OPENAI_GPT_IMAGE.value
+    status: str = ImageJobStatus.PENDING.value
+    images: list = field(default_factory=list)  # list of ImageRequest dicts
+    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    notes: str = ""
+
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        # images is already a list of dicts from asdict, but remove image_data
+        clean_images = []
+        for img in d.get("images", []):
+            img.pop("image_data", None)
+            clean_images.append(img)
+        d["images"] = clean_images
+        return d
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ImageJob":
+        valid_fields = {f.name for f in cls.__dataclass_fields__.values()}
+        filtered = {}
+        for k, v in data.items():
+            if k in valid_fields:
+                if k == "images" and isinstance(v, str):
+                    import json as _json
+                    try:
+                        filtered[k] = _json.loads(v)
+                    except (ValueError, TypeError):
+                        filtered[k] = []
+                else:
+                    filtered[k] = v
+        return cls(**filtered)
 
 
 @dataclass

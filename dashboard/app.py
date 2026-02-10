@@ -29,10 +29,13 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Minimal CSS
+# Global CSS — applies to ALL pages
 st.markdown("""
 <style>
     .main .block-container {
+        max-width: 95% !important;
+        padding-left: 2rem;
+        padding-right: 2rem;
         padding-top: 2rem;
         padding-bottom: 2rem;
     }
@@ -42,13 +45,15 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Use st.navigation for proper page naming
-home_page = st.Page("pages/home.py", title="Home", icon="🏠", default=True)
-settings_page = st.Page("pages/1_Settings.py", title="Settings", icon="⚙️")
-research_page = st.Page("pages/2_Research.py", title="Research", icon="🔬")
-products_page = st.Page("pages/3_Products.py", title="Products", icon="📦")
-performance_page = st.Page("pages/4_Performance.py", title="Performance", icon="📈")
-logs_page = st.Page("pages/5_Logs.py", title="Logs", icon="📋")
+# Use st.navigation for proper page naming (views/ instead of pages/ to avoid auto-discovery)
+home_page = st.Page("views/_home.py", title="Home", icon="🏠", default=True)
+settings_page = st.Page("views/1_Settings.py", title="Settings", icon="⚙️")
+research_page = st.Page("views/2_Research.py", title="Research", icon="🔬")
+products_page = st.Page("views/3_Products.py", title="Products", icon="📦")
+performance_page = st.Page("views/4_Performance.py", title="Performance", icon="📈")
+logs_page = st.Page("views/5_Logs.py", title="Logs", icon="📋")
+studio_page = st.Page("views/6_Image_Studio.py", title="Image Studio", icon="🎨")
+content_page = st.Page("views/7_Content_Studio.py", title="Content Studio", icon="📝")
 
-pg = st.navigation([home_page, settings_page, research_page, products_page, performance_page, logs_page])
+pg = st.navigation([home_page, settings_page, research_page, products_page, performance_page, logs_page, studio_page, content_page])
 pg.run()

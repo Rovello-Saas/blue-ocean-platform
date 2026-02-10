@@ -95,6 +95,7 @@ def analyze_competition(
         sellers = []
         product_titles = []
         prices = []
+        competitor_pdp_url = ""  # First result's product page URL
 
         for item in shopping_results:
             # Seller/source
@@ -111,6 +112,12 @@ def analyze_competition(
             price = _extract_price(item)
             if price and price > 0:
                 prices.append(price)
+
+            # Capture the top competitor's actual PDP URL (first result with a link)
+            if not competitor_pdp_url:
+                link = item.get("link") or item.get("product_link") or ""
+                if link and link.startswith("http"):
+                    competitor_pdp_url = link
 
         # Calculate metrics
         unique_sellers = set(sellers)
@@ -159,6 +166,7 @@ def analyze_competition(
             "price_range_max": round(price_range[1], 2),
             "total_results": len(shopping_results),
             "google_shopping_url": google_shopping_url,
+            "competitor_pdp_url": competitor_pdp_url,
         }
 
         logger.info(

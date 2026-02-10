@@ -29,9 +29,10 @@ def main():
         store = None
 
     # Use tabs for organized settings
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "🌍 Global", "🔬 Research", "💰 Economics",
-        "📊 Kill/Scale Rules", "🚚 Shipping", "📡 Monitoring"
+        "📊 Kill/Scale Rules", "🚚 Shipping", "📡 Monitoring",
+        "🎨 Image Studio"
     ])
 
     settings_changed = False
@@ -496,6 +497,149 @@ def main():
             help="How often to check the Sheet for new agent cost entries"
         )
 
+    # --- Image Studio Settings ---
+    with tab7:
+        st.subheader("Image Studio Settings")
+        st.info("Configure how AI product images are generated. These prompts are used when generating images in the Image Studio.")
+
+        # Default generator selection
+        from src.content.image_studio import GENERATOR_INFO
+        from src.core.models import ImageGeneratorType
+
+        gen_options = list(GENERATOR_INFO.keys())
+        gen_labels = {
+            k: f"{v.get('name', k)}  —  {v.get('cost_label', v.get('cost', '?'))}  ({v.get('speed', '')})"
+            for k, v in GENERATOR_INFO.items()
+        }
+        current_gen = config.get(
+            "image_studio.default_generator",
+            ImageGeneratorType.OPENAI_GPT_IMAGE.value,
+        )
+        gen_idx = gen_options.index(current_gen) if current_gen in gen_options else 0
+
+        studio_default_generator = st.selectbox(
+            "Default image generator",
+            options=gen_options,
+            index=gen_idx,
+            format_func=lambda x: gen_labels.get(x, x),
+            help="The AI model used for image generation. Can be overridden per product in the Image Studio.",
+        )
+
+        # Show description of selected generator
+        sel_gen_info = GENERATOR_INFO.get(studio_default_generator, {})
+        if sel_gen_info:
+            st.caption(sel_gen_info.get("description", ""))
+
+        st.markdown("---")
+
+        # Number of images
+        studio_num_images = st.slider(
+            "Number of images per product",
+            min_value=1,
+            max_value=10,
+            value=int(config.get("image_studio.num_images", 5)),
+            step=1,
+            help="How many images the AI generates for each product."
+        )
+
+        # Main prompt (global instructions)
+        st.markdown("**Main Prompt (applied to all images)**")
+        studio_main_prompt = st.text_area(
+            "Main prompt",
+            value=config.get("image_studio.main_prompt",
+                "Professional e-commerce product photography. "
+                "Remove any logos, watermarks, or brand names from the product. "
+                "High resolution, sharp details. No text overlays unless specified."
+            ),
+            height=100,
+            help="Global instructions that apply to every image. This is prepended to each per-image prompt.",
+            label_visibility="collapsed",
+        )
+
+        st.markdown("---")
+        st.markdown("**Per-Image Prompts**")
+        st.caption("Configure the prompt for each image. Use {product} as a placeholder for the product name, and {language} for the target language.")
+
+        # Default per-image prompts
+        default_image_prompts = [
+            {
+                "label": "Main Product Shot",
+                "prompt": "Recreate this product ({product}) on a clean white background. Show it neatly from a slightly different angle than the input image. Keep the exact same product appearance. Professional studio lighting with soft natural shadows."
+            },
+            {
+                "label": "Lifestyle Scene",
+                "prompt": "Place this product ({product}) in a cozy modern living room setting. Warm natural lighting, the product is being used naturally. Professional lifestyle photography, editorial quality."
+            },
+            {
+                "label": "Feature Infographic",
+                "prompt": "Create a product infographic for {product}. Show the product centered with 3-4 key feature callouts with clean arrows pointing to specific parts. {language} text labels. Clean white background, modern typography."
+            },
+            {
+                "label": "Detail Close-up",
+                "prompt": "Extreme close-up detail shot of {product}. Focus on texture, materials, and key features. Macro photography style, shallow depth of field, soft natural lighting."
+            },
+            {
+                "label": "Creative / Mood Shot",
+                "prompt": "Show {product} being used by a person in a cozy setting. Natural, lifestyle feel. Warm lighting, comfortable atmosphere. Professional photography."
+            },
+        ]
+
+        # Load saved prompts or use defaults
+        saved_prompts_raw = config.get("image_studio.image_prompts", None)
+        if saved_prompts_raw and isinstance(saved_prompts_raw, list):
+            saved_prompts = saved_prompts_raw
+        elif saved_prompts_raw and isinstance(saved_prompts_raw, str):
+            try:
+                import json as _json
+                saved_prompts = _json.loads(saved_prompts_raw)
+            except (ValueError, TypeError):
+                saved_prompts = default_image_prompts
+        else:
+            saved_prompts = default_image_prompts
+
+        # Initialize session state for dynamic prompt list
+        if "studio_image_prompts" not in st.session_state:
+            st.session_state.studio_image_prompts = saved_prompts[:studio_num_images]
+
+        # Ensure we have the right number
+        while len(st.session_state.studio_image_prompts) < studio_num_images:
+            idx = len(st.session_state.studio_image_prompts)
+            if idx < len(default_image_prompts):
+                st.session_state.studio_image_prompts.append(default_image_prompts[idx])
+            else:
+                st.session_state.studio_image_prompts.append({
+                    "label": f"Image {idx + 1}",
+                    "prompt": "Professional product photo of {product}.",
+                })
+        st.session_state.studio_image_prompts = st.session_state.studio_image_prompts[:studio_num_images]
+
+        # Render per-image prompt editors
+        for i in range(studio_num_images):
+            p = st.session_state.studio_image_prompts[i]
+            with st.expander(f"Image {i + 1}: {p.get('label', f'Image {i+1}')}", expanded=(i < 3)):
+                new_label = st.text_input(
+                    "Label",
+                    value=p.get("label", f"Image {i + 1}"),
+                    key=f"studio_label_{i}",
+                    help="A short name for this image type (e.g. 'Lifestyle Scene')."
+                )
+                new_prompt = st.text_area(
+                    "Prompt",
+                    value=p.get("prompt", ""),
+                    key=f"studio_prompt_{i}",
+                    height=80,
+                    help="The prompt sent to the AI. Use {product} and {language} as placeholders.",
+                )
+                st.session_state.studio_image_prompts[i] = {
+                    "label": new_label,
+                    "prompt": new_prompt,
+                }
+
+        # Reset to defaults button
+        if st.button("Reset to default prompts"):
+            st.session_state.studio_image_prompts = default_image_prompts[:studio_num_images]
+            st.rerun()
+
     # --- Save Button ---
     st.markdown("---")
 
@@ -564,6 +708,12 @@ def main():
             },
             "polling": {
                 "agent_cost_check_interval_minutes": poll_interval,
+            },
+            "image_studio": {
+                "default_generator": studio_default_generator,
+                "num_images": studio_num_images,
+                "main_prompt": studio_main_prompt,
+                "image_prompts": st.session_state.get("studio_image_prompts", []),
             },
         }
 

@@ -49,7 +49,7 @@ KEYWORD_HEADERS = [
     "intent_score", "research_source", "competitor_count",
     "unique_product_count", "competition_type", "differentiation_score",
     "avg_competitor_price", "median_competitor_price", "estimated_selling_price",
-    "google_shopping_url",
+    "google_shopping_url", "competitor_pdp_url",
     "aliexpress_url", "aliexpress_price", "aliexpress_rating",
     "aliexpress_orders", "aliexpress_image_urls", "created_at", "notes"
 ]
@@ -58,7 +58,7 @@ PRODUCT_HEADERS = [
     "product_id", "keyword_id", "country", "language", "keyword",
     "monthly_search_volume", "estimated_cpc", "competition_level",
     "competitor_count", "differentiation_score", "competition_type",
-    "google_shopping_url",
+    "google_shopping_url", "competitor_pdp_url",
     "aliexpress_url", "aliexpress_price", "aliexpress_rating",
     "aliexpress_orders", "aliexpress_image_urls",
     "selling_price", "landed_cost",

@@ -88,35 +88,6 @@ def main():
                 count = status_counts.get(status, 0)
                 st.metric(f"{icon} {label}", count)
 
-        # Recent actions
-        st.markdown("---")
-        st.subheader("Recent Actions")
-
-        logs = store.get_logs(limit=10)
-        if logs:
-            for log in logs:
-                icon = {
-                    "product_killed": "💀",
-                    "product_winner": "🏆",
-                    "budget_scaled": "📈",
-                    "product_paused": "⏸️",
-                    "economics_passed": "✅",
-                    "economics_failed": "❌",
-                    "listing_created": "🛍️",
-                    "sourcing_started": "📦",
-                    "price_alert": "💰",
-                    "stock_alert": "📦",
-                }.get(log.action_type, "📋")
-
-                with st.container():
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        st.markdown(f"{icon} **{log.action_type.replace('_', ' ').title()}** — {log.reason[:100]}")
-                    with col2:
-                        st.caption(log.timestamp[:19])
-        else:
-            st.info("No actions recorded yet. Start product discovery to find products.")
-
         # Quick actions
         st.markdown("---")
         st.subheader("Quick Actions")
