@@ -8,6 +8,7 @@ reference image upload for regeneration.
 
 import json
 import sys
+import importlib
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -15,6 +16,21 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 import streamlit as st
 import logging
+
+# Force-reload so code changes are picked up without restarting Streamlit
+import src.core.config as _config_mod
+importlib.reload(_config_mod)
+import src.content.image_generator as _img_gen_mod
+import src.content.image_studio as _img_studio_mod
+import src.shopify.listing_manager as _shopify_mod
+try:
+    import src.content.nano_banana_generator as _nano_mod
+    importlib.reload(_nano_mod)
+except ImportError:
+    pass
+importlib.reload(_img_gen_mod)
+importlib.reload(_img_studio_mod)
+importlib.reload(_shopify_mod)
 
 from src.content.image_studio import (
     ImageStudioService,
@@ -30,6 +46,16 @@ _GEN_OPTIONS = list(GENERATOR_INFO.keys())
 _GEN_SHORT_LABELS = {
     k: f"{v.get('name', k)} ({v.get('cost_label', '?')})"
     for k, v in GENERATOR_INFO.items()
+}
+
+_LANGUAGE_OPTIONS = {
+    "de": "Deutsch (German)",
+    "nl": "Nederlands (Dutch)",
+    "en": "English",
+    "fr": "Fran\u00e7ais (French)",
+    "es": "Espa\u00f1ol (Spanish)",
+    "it": "Italiano (Italian)",
+    "pl": "Polski (Polish)",
 }
 
 
@@ -151,10 +177,28 @@ def render_generate_form(studio, product):
     default_gen = config.get("image_studio.default_generator", ImageGeneratorType.OPENAI_GPT_IMAGE.value)
     default_idx = _GEN_OPTIONS.index(default_gen) if default_gen in _GEN_OPTIONS else 0
 
-    selected_gen = st.selectbox("Image generator", options=_GEN_OPTIONS, index=default_idx, format_func=lambda x: _GEN_SHORT_LABELS.get(x, x))
-    gen_info = GENERATOR_INFO.get(selected_gen, {})
-    if gen_info:
-        st.caption(gen_info.get("description", ""))
+    # Generator + language side by side
+    col_gen, col_lang = st.columns(2)
+    with col_gen:
+        selected_gen = st.selectbox("Image generator", options=_GEN_OPTIONS, index=default_idx, format_func=lambda x: _GEN_SHORT_LABELS.get(x, x))
+        gen_info = GENERATOR_INFO.get(selected_gen, {})
+        if gen_info:
+            st.caption(gen_info.get("description", ""))
+    with col_lang:
+        # Language for infographic text — default from product, fallback to config
+        product_lang = (product.language or "").strip().lower()
+        default_lang_setting = config.get("image_studio.default_language", "")
+        lang_default = product_lang or default_lang_setting or "en"
+
+        lang_options = list(_LANGUAGE_OPTIONS.keys())
+        lang_idx = lang_options.index(lang_default) if lang_default in lang_options else lang_options.index("en")
+        selected_lang = st.selectbox(
+            "Text language (infographic)",
+            options=lang_options,
+            index=lang_idx,
+            format_func=lambda x: _LANGUAGE_OPTIONS.get(x, x),
+            help="Language used for feature labels on the infographic image. Other images are language-agnostic.",
+        )
 
     num_images = int(config.get("image_studio.num_images", 5))
     cost_per = gen_info.get("cost_per_image", 0.06)
@@ -165,17 +209,82 @@ def render_generate_form(studio, product):
     with col_btn:
         if ref_url and description:
             if st.button(f"Generate {num_images} Images", type="primary", use_container_width=True):
-                _run_generation(studio, product, ref_url, description, num_images, instructions)
+                _run_generation(studio, product, ref_url, description, num_images, instructions, selected_gen, selected_lang)
         else:
             st.caption("Paste a reference image URL above to start.")
 
 
-def _run_generation(studio, product, ref_url, description, num_images, instructions=""):
+def _render_step_progress(placeholder, current: int, total: int, message: str):
+    """Render a horizontal step progress bar with step circles and labels."""
+    steps_html = ""
+    for i in range(1, total + 1):
+        if i < current:
+            cls = "step-done"
+            icon = "&#10003;"  # checkmark
+        elif i == current:
+            cls = "step-active"
+            icon = str(i)
+        else:
+            cls = "step-pending"
+            icon = str(i)
+        steps_html += f'<div class="step {cls}"><div class="circle">{icon}</div><div class="label">Image {i}</div></div>'
+        if i < total:
+            bar_cls = "bar-done" if i < current else ("bar-active" if i == current else "bar-pending")
+            steps_html += f'<div class="bar {bar_cls}"></div>'
+
+    html = f"""
+    <style>
+    .step-progress {{
+        display: flex; align-items: center; justify-content: center;
+        padding: 12px 0; margin: 8px 0;
+    }}
+    .step-progress .step {{
+        display: flex; flex-direction: column; align-items: center; min-width: 60px;
+    }}
+    .step-progress .circle {{
+        width: 36px; height: 36px; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-weight: 700; font-size: 14px; transition: all 0.3s;
+    }}
+    .step-progress .label {{
+        font-size: 11px; margin-top: 4px; color: #888; white-space: nowrap;
+    }}
+    .step-progress .bar {{
+        flex: 1; height: 4px; min-width: 30px; border-radius: 2px; margin: 0 2px;
+        margin-bottom: 20px;
+    }}
+    .step-done .circle {{ background: #28a745; color: #fff; }}
+    .step-done .label {{ color: #28a745; font-weight: 600; }}
+    .step-active .circle {{
+        background: #0d6efd; color: #fff;
+        box-shadow: 0 0 0 4px rgba(13,110,253,.25);
+        animation: pulse-step 1.5s infinite;
+    }}
+    .step-active .label {{ color: #0d6efd; font-weight: 600; }}
+    .step-pending .circle {{ background: #e9ecef; color: #adb5bd; }}
+    .bar-done {{ background: #28a745; }}
+    .bar-active {{ background: linear-gradient(90deg, #0d6efd 50%, #e9ecef 50%); }}
+    .bar-pending {{ background: #e9ecef; }}
+    @keyframes pulse-step {{
+        0%, 100% {{ box-shadow: 0 0 0 4px rgba(13,110,253,.25); }}
+        50% {{ box-shadow: 0 0 0 8px rgba(13,110,253,.15); }}
+    }}
+    </style>
+    <div class="step-progress">{steps_html}</div>
+    <p style="text-align:center; color:#555; font-size:13px; margin:4px 0 8px;">{message}</p>
+    """
+    placeholder.markdown(html, unsafe_allow_html=True)
+
+
+def _run_generation(studio, product, ref_url, description, num_images, instructions="", generator_key="", target_language=""):
     """Shared generation logic used by both the form and Start Over."""
-    progress = st.progress(0, text="Analyzing reference image...")
+    lang = target_language or product.language or "en"
+
+    step_placeholder = st.empty()
+    _render_step_progress(step_placeholder, 0, num_images, "Analyzing reference image...")
 
     def on_progress(cur, tot, msg):
-        progress.progress(cur / max(tot, 1), text=f"({cur}/{tot}) {msg}")
+        _render_step_progress(step_placeholder, cur, tot, msg)
 
     with st.spinner("Generating — this takes 1-3 minutes (includes AI reference analysis)..."):
         job = studio.auto_generate_job(
@@ -183,13 +292,14 @@ def _run_generation(studio, product, ref_url, description, num_images, instructi
             product_keyword=product.keyword,
             reference_image_urls=[ref_url],
             product_description=description,
-            target_language=product.language or "en",
+            target_language=lang,
             num_images=num_images,
             progress_callback=on_progress,
             product_instructions=instructions,
+            generator_key=generator_key,
         )
 
-    progress.progress(1.0, text="Done!")
+    _render_step_progress(step_placeholder, num_images, num_images, "All images generated!")
     if job.status == ImageJobStatus.FAILED.value:
         st.error(f"Generation failed: {job.notes}")
     else:
@@ -206,6 +316,7 @@ def render_review_gallery(studio, job, product):
     approved = sum(1 for img in job.images if img["status"] == ImageJobStatus.APPROVED.value)
     review_count = sum(1 for img in job.images if img["status"] == ImageJobStatus.REVIEW.value)
     rejected = sum(1 for img in job.images if img["status"] == ImageJobStatus.REJECTED.value)
+    uploaded = sum(1 for img in job.images if img["status"] == ImageJobStatus.UPLOADED.value)
 
     meta = {}
     try:
@@ -220,34 +331,30 @@ def render_review_gallery(studio, job, product):
     job_cost_per_image = get_cost_per_image(job.default_generator)
 
     # ── Summary row ──────────────────────────────────────────────
-    cols = st.columns(7)
+    cols = st.columns(8)
     cols[0].metric("Total", total)
     cols[1].metric("Approved", f"{approved}/{total}")
-    cols[2].metric("To Review", review_count)
-    cols[3].metric("Rejected", rejected)
-    cols[4].metric("Initial Cost", f"${cost_initial:.2f}")
-    cols[5].metric("Retries Cost", f"${cost_regen:.2f}")
-    cols[6].metric("Total Cost", f"${cost_total:.2f}")
+    cols[2].metric("Pushed", uploaded)
+    cols[3].metric("To Review", review_count)
+    cols[4].metric("Rejected", rejected)
+    cols[5].metric("Initial Cost", f"${cost_initial:.2f}")
+    cols[6].metric("Retries Cost", f"${cost_regen:.2f}")
+    cols[7].metric("Total Cost", f"${cost_total:.2f}")
 
     # ── Quick actions ────────────────────────────────────────────
-    act = st.columns(4)
+    act = st.columns(3)
     with act[0]:
         if review_count > 0 and st.button("Approve All", use_container_width=True):
             studio.approve_all(job.job_id)
             st.rerun()
     with act[1]:
-        if approved == total and total > 0:
-            if st.button("Upload Images to Shopify", type="primary", use_container_width=True):
-                _upload_to_shopify(studio, job)
-    with act[2]:
         if st.button("Start Over", use_container_width=True, help="Archive this batch — you can adjust settings and add instructions before generating new images"):
             settings = studio.archive_job(job.job_id)
             if settings:
-                # Pre-fill the generate form with values from the archived job
                 st.session_state["last_ref_url"] = settings.get("reference_url", "")
                 st.session_state["last_instructions"] = settings.get("product_instructions", "")
                 st.rerun()
-    with act[3]:
+    with act[2]:
         if st.button("Delete", use_container_width=True, help="Permanently delete this batch"):
             studio.delete_job(job.job_id)
             st.rerun()
@@ -256,14 +363,20 @@ def render_review_gallery(studio, job, product):
 
     # ── Reference image + instructions ──────────────────────────
     product_instructions = meta.get("product_instructions", "")
+    job_language = meta.get("target_language", "")
+    job_lang_label = _LANGUAGE_OPTIONS.get(job_language, job_language.upper()) if job_language else "—"
     if reference_url:
         with st.expander("Reference Image (competitor)", expanded=True):
             ref_col1, ref_col2 = st.columns([1, 3])
             with ref_col1:
                 st.image(reference_url, caption="Competitor reference", width=250)
+                if st.button("Click to enlarge", key="enlarge_ref", use_container_width=True):
+                    _show_fullsize_dialog(reference_url, "Competitor Reference Image")
             with ref_col2:
                 st.caption(f"URL: {reference_url}")
                 st.caption("Compare each generated image against this to check product accuracy.")
+                if job_language:
+                    st.markdown(f"**Infographic language:** {job_lang_label}")
                 if product_instructions:
                     st.markdown(f"**Product instructions:** {product_instructions}")
 
@@ -271,17 +384,34 @@ def render_review_gallery(studio, job, product):
     for img in job.images:
         _render_image_card(studio, job, img, job_cost_per_image)
 
-    # ── Publish readiness (all images approved) ───────────────
-    all_approved = approved == total and total > 0
+    # ── Push to Shopify (matches Content Studio pattern) ──────
+    all_approved = (approved == total and total > 0) or uploaded > 0
     if all_approved:
-        _render_publish_section(product)
+        _render_push_images_section(studio, job, product)
 
 
-def _render_publish_section(product):
-    """Show publish readiness + publish button when all images approved."""
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  PUSH IMAGES TO SHOPIFY  (mirrors Content Studio pattern)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def _render_push_images_section(studio, job, product):
+    """Push images to Shopify — mirrors the Content Studio's Publish tab."""
     st.divider()
-    st.subheader("Ready to Publish?")
+    st.subheader("Push to Shopify")
 
+    shopify_id = getattr(product, "shopify_product_id", "")
+    if not shopify_id:
+        st.warning(
+            "This product doesn't have a Shopify listing yet. "
+            "Create a listing first via the **Products** tab."
+        )
+        return
+
+    from src.core.config import SHOPIFY_SHOP_URL
+    admin_url = f"https://{SHOPIFY_SHOP_URL}/admin/products/{shopify_id}"
+    st.info(f"Shopify Product ID: **{shopify_id}**")
+
+    # ── Readiness checklist ──────────────────────────────────
     try:
         from src.content.content_studio import ContentStudioService
         cs = ContentStudioService()
@@ -289,41 +419,207 @@ def _render_publish_section(product):
     except Exception:
         readiness = {"text_ok": False, "images_ok": True, "ready": False}
 
+    st.markdown("### Checklist")
     col_t, col_i = st.columns(2)
     with col_t:
         if readiness["text_ok"]:
-            st.success("Text content approved ✅")
+            st.success("Text content approved")
         else:
             st.warning("Text not approved — go to **Content Studio** and approve")
     with col_i:
-        st.success("Images approved ✅")
+        st.success("Images approved")
+
+    # ── Step 1: Push images (does NOT publish) ───────────────
+    st.divider()
+    st.markdown("### Step 1: Push images to Shopify")
+    st.caption(
+        "This **replaces** all existing product images on Shopify with the approved images from this batch. "
+        "Safe to run multiple times — it won't create duplicates. "
+        "**This does NOT make the product live** — it stays in its current status (draft or active)."
+    )
+
+    uploaded_count = sum(1 for img in job.images if img["status"] == ImageJobStatus.UPLOADED.value)
+    approved_count = sum(1 for img in job.images if img["status"] == ImageJobStatus.APPROVED.value)
+    total_ready = uploaded_count + approved_count
+
+    if uploaded_count > 0:
+        st.caption(f"{uploaded_count} image(s) already pushed previously. Clicking below will re-push all {total_ready} images.")
+
+    if st.button("Push Images to Shopify", use_container_width=True, key="push_images"):
+        _push_images_to_shopify(studio, job, product, shopify_id)
+
+    # ── Step 2: Publish / Unpublish ──────────────────────────
+    st.divider()
+    st.markdown("### Step 2: Publish or unpublish")
+
+    # Show current Shopify status + get product info for smart links
+    product_info = _render_shopify_status_badge(shopify_id)
 
     if readiness["ready"]:
-        st.success("Both text and images are approved — **ready to publish!**")
-
-        shopify_id = product.shopify_product_id
-        if shopify_id:
-            if st.button("Publish (make live)", type="primary", use_container_width=True,
-                         key="img_publish",
-                         help="Sets the product to 'active' — visible on your store immediately."):
-                try:
-                    from src.shopify.listing_manager import ShopifyListingManager
-                    shopify = ShopifyListingManager()
-                    success = shopify.update_listing(shopify_id, {"status": "active"})
-                    if success:
-                        st.success("Product is now **live** on your store!")
-                        st.balloons()
-                    else:
-                        st.error("Failed to publish.")
-                except Exception as e:
-                    st.error(f"Failed: {e}")
-        else:
-            st.info("No Shopify listing yet — create one first via the Products tab.")
-    else:
-        st.info(
-            "All images are approved! Now go to the **Content Studio** to review and approve "
-            "the text. Once both are approved, the Publish button will unlock."
+        st.success(
+            "Both text and images are approved — this product is **ready to publish**."
         )
+    else:
+        missing = []
+        if not readiness["text_ok"]:
+            missing.append("approve text in the **Content Studio**")
+        if not readiness["images_ok"]:
+            missing.append("approve all images above")
+        st.warning(
+            f"Before publishing, you need to: **{' and '.join(missing)}**."
+        )
+
+    col_pub, col_unpub = st.columns(2)
+    with col_pub:
+        if st.button(
+            "Publish (make live)",
+            type="primary",
+            use_container_width=True,
+            disabled=not readiness["ready"],
+            key="img_publish",
+            help="Both text and images must be approved before publishing. "
+                 "Sets the product status to 'active' — visible on your store immediately."
+                 if readiness["ready"] else
+                 "Disabled — approve text and images first.",
+        ):
+            with st.spinner("Publishing..."):
+                success = _set_shopify_status(shopify_id, "active")
+                if success:
+                    st.toast("Product is now **live** on your store!")
+                    st.balloons()
+                    st.rerun()
+                else:
+                    st.error("Failed to publish. Check logs.")
+    with col_unpub:
+        if st.button(
+            "Unpublish (set to draft)",
+            type="secondary",
+            use_container_width=True,
+            key="img_unpublish",
+            help="Sets the product status to 'draft' — it will no longer be visible to customers.",
+        ):
+            with st.spinner("Unpublishing..."):
+                success = _set_shopify_status(shopify_id, "draft")
+                if success:
+                    st.toast("Product is now a **draft** — not visible to customers.")
+                    st.rerun()
+                else:
+                    st.error("Failed to unpublish. Check logs.")
+
+    # ── Shopify links (smart: based on product status) ────────
+    fallback_url = getattr(product, "shopify_product_url", "")
+    _render_shopify_links(shopify_id, product_info, admin_url, fallback_url, key_suffix="img")
+
+
+def _push_images_to_shopify(studio, job, product, shopify_id):
+    """Replace all images on Shopify with the approved/uploaded images from this batch."""
+    from src.shopify.listing_manager import ShopifyListingManager
+
+    # Collect all approved + uploaded image bytes
+    all_images = []
+    for img in job.images:
+        if img["status"] in (ImageJobStatus.APPROVED.value, ImageJobStatus.UPLOADED.value):
+            img_bytes = studio.get_image_bytes(img["request_id"])
+            if img_bytes:
+                all_images.append((img, img_bytes))
+
+    if not all_images:
+        st.warning("No approved images to push.")
+        return
+
+    with st.spinner(f"Replacing images on Shopify ({len(all_images)} images)..."):
+        try:
+            manager = ShopifyListingManager()
+            success = manager.replace_images(shopify_id, [b for _, b in all_images])
+            if success:
+                for img_dict, _ in all_images:
+                    img_dict["status"] = ImageJobStatus.UPLOADED.value
+                studio._update_job_status(job)
+                studio._save_cache()
+                st.success(f"Pushed {len(all_images)} image(s) to Shopify!")
+            else:
+                st.error(
+                    "Shopify returned an error when pushing images. "
+                    "Check that the product is not archived and the Shopify API credentials are valid."
+                )
+        except Exception as e:
+            st.error(f"Push failed: {e}")
+
+
+def _set_shopify_status(shopify_product_id: str, status: str) -> bool:
+    """Set a Shopify product's status (active/draft/archived)."""
+    try:
+        from src.shopify.listing_manager import ShopifyListingManager
+        shopify = ShopifyListingManager()
+        return shopify.update_listing(shopify_product_id, {"status": status})
+    except Exception as e:
+        logger.error("Failed to set Shopify status: %s", e)
+        return False
+
+
+def _fetch_shopify_product_info(shopify_id: str) -> dict:
+    """Fetch product status, preview URL, and storefront URL from Shopify.
+
+    Returns dict with 'status', 'preview_url', 'storefront_url' (any may be None/empty).
+    """
+    try:
+        from src.shopify.listing_manager import ShopifyListingManager
+        manager = ShopifyListingManager()
+        info = manager.get_product_info(shopify_id)
+        return info or {"status": None, "preview_url": "", "storefront_url": "", "error": "No data returned"}
+    except Exception as e:
+        return {"status": None, "preview_url": "", "storefront_url": "", "error": str(e)}
+
+
+def _render_shopify_status_badge(shopify_id: str) -> dict:
+    """Fetch and display the current Shopify product status. Returns product info dict."""
+    info = _fetch_shopify_product_info(shopify_id)
+    status = info.get("status")
+
+    if status is None:
+        error = info.get("error", "")
+        msg = f"**Current Shopify status:** Unknown (could not fetch for ID: {shopify_id})"
+        if error:
+            msg += f"\n\n`{error}`"
+        st.warning(msg)
+    elif status == "active":
+        st.success("Current Shopify status: **Active** — Live on store")
+    elif status == "draft":
+        st.info("Current Shopify status: **Draft** — Not visible to customers")
+    elif status == "archived":
+        st.error("Current Shopify status: **Archived** — Hidden from admin and store")
+    else:
+        st.info(f"Current Shopify status: **{status.title()}**")
+
+    return info
+
+
+def _render_shopify_links(shopify_id: str, product_info: dict, admin_url: str, fallback_storefront_url: str = "", key_suffix: str = ""):
+    """Render smart Shopify links based on product status."""
+    status = product_info.get("status", "")
+    preview_url = product_info.get("preview_url", "")
+    storefront_url = product_info.get("storefront_url", "") or fallback_storefront_url
+
+    link_col1, link_col2, link_col3 = st.columns(3)
+
+    with link_col1:
+        st.link_button("Open in Shopify Admin", admin_url, use_container_width=True)
+
+    with link_col2:
+        if status == "active" and storefront_url:
+            st.link_button("View Storefront Page", storefront_url, use_container_width=True)
+        else:
+            st.button("View Storefront Page", disabled=True, use_container_width=True,
+                       help="Only available when the product is published (active).",
+                       key=f"sf_disabled_{key_suffix}")
+
+    with link_col3:
+        if preview_url and status in ("draft", "active"):
+            st.link_button("Preview Draft", preview_url, use_container_width=True)
+        else:
+            st.button("Preview Draft", disabled=True, use_container_width=True,
+                       help="Only available for draft or active products.",
+                       key=f"pv_disabled_{key_suffix}")
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -384,8 +680,21 @@ def _render_image_card(studio, job, img, job_cost_per_image):
 
             if display_bytes:
                 st.image(display_bytes, use_container_width=True)
-                if st.button("View full size", key=f"zoom_{request_id}", use_container_width=True):
-                    _show_fullsize_dialog(display_bytes, f"Image {img['image_index']}: {type_label}")
+                dl_col, view_col = st.columns(2)
+                with dl_col:
+                    file_ext = "png"
+                    fname = f"{image_type}_{img['image_index']}.{file_ext}"
+                    st.download_button(
+                        "Download",
+                        data=display_bytes,
+                        file_name=fname,
+                        mime=f"image/{file_ext}",
+                        key=f"dl_{request_id}",
+                        use_container_width=True,
+                    )
+                with view_col:
+                    if st.button("View full size", key=f"zoom_{request_id}", use_container_width=True):
+                        _show_fullsize_dialog(display_bytes, f"Image {img['image_index']}: {type_label}")
             elif status == ImageJobStatus.GENERATING.value:
                 st.info("Generating...")
             elif status == ImageJobStatus.FAILED.value:
@@ -559,31 +868,10 @@ def render_previous_attempts(studio, product):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @st.dialog("Full-size image", width="large")
-def _show_fullsize_dialog(image_bytes: bytes, title: str):
+def _show_fullsize_dialog(image_source, title: str):
+    """Display an image at full size. Accepts bytes or a URL string."""
     st.markdown(f"**{title}**")
-    st.image(image_bytes, use_container_width=True)
-
-
-def _upload_to_shopify(studio, job):
-    from src.shopify.listing_manager import ShopifyListingManager
-    approved = studio.get_approved_images(job.job_id)
-    if not approved:
-        st.warning("No approved images.")
-        return
-    if not job.product_id:
-        st.warning("No product ID linked.")
-        return
-    try:
-        manager = ShopifyListingManager()
-        manager.add_images(job.product_id, [b for _, b in approved])
-        for img in job.images:
-            if img["status"] == ImageJobStatus.APPROVED.value:
-                img["status"] = ImageJobStatus.UPLOADED.value
-        studio._update_job_status(job)
-        studio._save_cache()
-        st.success(f"Uploaded {len(approved)} image(s) to Shopify!")
-    except Exception as e:
-        st.error(f"Upload failed: {e}")
+    st.image(image_source, use_container_width=True)
 
 
 def _status_icon(status):

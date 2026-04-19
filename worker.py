@@ -1,5 +1,5 @@
 """
-Background worker for the Qoveliqo Ads automation system.
+Background worker for the Blue Ocean Platform.
 Runs the scheduler for automated product discovery, performance tracking,
 and decision engine.
 
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 def main():
     logger.info("=" * 60)
-    logger.info("  Qoveliqo Ads - Background Worker")
+    logger.info("  Blue Ocean Platform - Background Worker")
     logger.info("=" * 60)
 
     try:

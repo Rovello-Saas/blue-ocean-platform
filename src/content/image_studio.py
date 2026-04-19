@@ -31,7 +31,7 @@ from src.core.models import (
 logger = logging.getLogger(__name__)
 
 # Where to cache generated images locally
-CACHE_DIR = Path(tempfile.gettempdir()) / "qoveliqo_image_studio"
+CACHE_DIR = Path(tempfile.gettempdir()) / "blue_ocean_image_studio"
 CACHE_DIR.mkdir(exist_ok=True)
 
 # Human-friendly image type labels
@@ -65,6 +65,20 @@ GENERATOR_INFO = {
         "speed": "Fast",
         "cost_per_image": 0.02,
         "cost_label": "~$0.02/image",
+    },
+    ImageGeneratorType.NANO_BANANA.value: {
+        "name": "Nano Banana (Gemini Flash)",
+        "description": "Fast image generation via Gemini 2.5 Flash — good for quick iterations",
+        "speed": "Fast",
+        "cost_per_image": 0.02,
+        "cost_label": "~$0.02/image",
+    },
+    ImageGeneratorType.NANO_BANANA_PRO.value: {
+        "name": "Nano Banana Pro (Gemini 3 Pro)",
+        "description": "Best quality: photorealistic, accurate text rendering, 4K, advanced reasoning — recommended",
+        "speed": "Medium",
+        "cost_per_image": 0.04,
+        "cost_label": "~$0.04/image",
     },
     ImageGeneratorType.FAL_FLUX_PRO.value: {
         "name": "Flux Pro (Fal.ai)",
@@ -123,10 +137,10 @@ class ImageStudioService:
         num_images: int = 5,
         progress_callback=None,
         product_instructions: str = "",
+        generator_key: str = "",
     ) -> ImageJob:
         """
-        Auto-generate product images using the existing AIImageGenerator
-        pipeline.  Results are stored as an ImageJob ready for review.
+        Auto-generate product images using the selected generator pipeline.
 
         Args:
             product_id: Product ID from the pipeline
@@ -137,32 +151,33 @@ class ImageStudioService:
             num_images: Number of images (1-5)
             progress_callback: Optional fn(current, total, message)
             product_instructions: Optional user-provided instructions
-                (e.g. "Pay close attention to the remote control")
+            generator_key: Which generator to use (default: OpenAI GPT-Image-1)
         """
-        from src.content.image_generator import AIImageGenerator
+        generator_key = generator_key or ImageGeneratorType.OPENAI_GPT_IMAGE.value
 
         # Create the job
         job = ImageJob(
             product_id=product_id,
             product_keyword=product_keyword,
             num_images=num_images,
-            default_generator=ImageGeneratorType.OPENAI_GPT_IMAGE.value,
+            default_generator=generator_key,
             status=ImageJobStatus.GENERATING.value,
             notes=json.dumps({
                 "reference_url": reference_image_urls[0] if reference_image_urls else "",
                 "cost_initial": 0.0,
                 "cost_regenerations": 0.0,
                 "product_instructions": product_instructions,
+                "target_language": target_language,
             }),
         )
 
         if progress_callback:
             progress_callback(0, num_images, "Analyzing reference image...")
 
-        # Run the existing pipeline
-        generator = AIImageGenerator()
+        # Dispatch to the correct generator pipeline
         try:
-            results = generator.generate_product_images(
+            results = self._run_generation_pipeline(
+                generator_key=generator_key,
                 reference_image_urls=reference_image_urls,
                 product_description=product_description,
                 target_language=target_language,
@@ -186,7 +201,7 @@ class ImageStudioService:
             req = ImageRequest(
                 image_index=i + 1,
                 prompt=IMAGE_TYPE_LABELS.get(image_type, image_type),
-                generator=ImageGeneratorType.OPENAI_GPT_IMAGE.value,
+                generator=generator_key,
                 status=ImageJobStatus.REVIEW.value,
             )
             req_dict = req.to_dict()
@@ -222,6 +237,43 @@ class ImageStudioService:
             len(images), product_keyword, job.job_id,
         )
         return job
+
+    # ── Generator dispatch ─────────────────────────────────────
+
+    @staticmethod
+    def _run_generation_pipeline(
+        generator_key: str,
+        reference_image_urls: list,
+        product_description: str,
+        target_language: str,
+        num_images: int,
+        product_instructions: str,
+    ) -> list[dict]:
+        """Dispatch image generation to the selected backend."""
+        if generator_key in (
+            ImageGeneratorType.NANO_BANANA.value,
+            ImageGeneratorType.NANO_BANANA_PRO.value,
+        ):
+            from src.content.nano_banana_generator import NanoBananaGenerator
+            gen = NanoBananaGenerator(model_key=generator_key)
+            return gen.generate_product_images(
+                reference_image_urls=reference_image_urls,
+                product_description=product_description,
+                target_language=target_language,
+                num_images=num_images,
+                product_instructions=product_instructions,
+            )
+        else:
+            # Default: OpenAI GPT-Image-1 (or any non-Nano-Banana key)
+            from src.content.image_generator import AIImageGenerator
+            gen = AIImageGenerator()
+            return gen.generate_product_images(
+                reference_image_urls=reference_image_urls,
+                product_description=product_description,
+                target_language=target_language,
+                num_images=num_images,
+                product_instructions=product_instructions,
+            )
 
     # ── Regenerate a single rejected image with feedback ────────
 
@@ -316,16 +368,34 @@ class ImageStudioService:
         self._save_cache()
 
         try:
-            from src.content.image_generator import AIImageGenerator
-            generator = AIImageGenerator()
-
-            if reference_image_bytes:
-                # Pass both canonical + reference image via images.edit
-                image_data = generator._call_image_edit_multi(
-                    [canonical_bytes, reference_image_bytes], regen_prompt
+            if active_gen in (
+                ImageGeneratorType.NANO_BANANA.value,
+                ImageGeneratorType.NANO_BANANA_PRO.value,
+            ):
+                from src.content.nano_banana_generator import NanoBananaGenerator
+                nb_gen = NanoBananaGenerator(model_key=active_gen)
+                # Combine canonical + optional reference into the prompt
+                combined_ref = canonical_bytes
+                if reference_image_bytes:
+                    regen_prompt += (
+                        "\n\nYou are receiving a reference image alongside. "
+                        "Carefully study it and reproduce the specific details."
+                    )
+                    combined_ref = reference_image_bytes  # Use user-provided ref
+                images = nb_gen.generate(
+                    prompt=regen_prompt,
+                    reference_image_bytes=combined_ref,
                 )
+                image_data = images[0] if images else None
             else:
-                image_data = generator._call_image_edit(canonical_bytes, regen_prompt)
+                from src.content.image_generator import AIImageGenerator
+                generator = AIImageGenerator()
+                if reference_image_bytes:
+                    image_data = generator._call_image_edit_multi(
+                        [canonical_bytes, reference_image_bytes], regen_prompt
+                    )
+                else:
+                    image_data = generator._call_image_edit(canonical_bytes, regen_prompt)
 
             if not image_data:
                 raise RuntimeError("Image generation returned no data")

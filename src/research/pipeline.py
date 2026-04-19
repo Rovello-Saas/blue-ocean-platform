@@ -219,15 +219,16 @@ class ResearchPipeline:
             stats["finished_at"] = datetime.utcnow().isoformat()
             return stats
 
-        # Step 4: AliExpress Product Matching
-        logger.info("Step 4: Matching %d keywords to AliExpress products", len(passed_competition))
+        # Step 4: AliExpress Product Matching (Top-3 approach)
+        logger.info("Step 4: Matching %d keywords to AliExpress products (top 3)", len(passed_competition))
         products_to_write = []
         try:
+            import json as _json_step4
             for kw_data in passed_competition:
                 keyword_text = kw_data["keyword"]
                 selling_price = kw_data.get("median_competitor_price", 0)
 
-                ali_product = aliexpress.find_best_match(
+                top3 = aliexpress.find_top3_matches(
                     keyword=keyword_text,
                     estimated_selling_price=selling_price,
                     country=country,
@@ -235,22 +236,36 @@ class ResearchPipeline:
                     config=self.config,
                 )
 
-                if ali_product:
-                    kw_data["aliexpress_match"] = ali_product
-                    products_to_write.append(kw_data)
+                best_seller = top3.get("best_seller")
+                if best_seller:
+                    kw_data["aliexpress_match"] = best_seller
                     stats["products_matched"] += 1
                 else:
-                    # No AliExpress match — still add to Sheet for manual sourcing
-                    # Build a manual search URL instead
+                    # No AliExpress results — build a manual search URL
                     search_urls = aliexpress.build_search_url(keyword_text)
                     kw_data["aliexpress_match"] = {
                         "url": search_urls.get("aliexpress_search_url", ""),
-                        "price": 0,
-                        "rating": 0,
-                        "orders": 0,
-                        "image_urls": [],
+                        "price": 0, "rating": 0, "orders": 0, "image_urls": [],
                     }
-                    products_to_write.append(kw_data)
+
+                # Serialize top-3 JSON for storage
+                top3_list = []
+                for key in ("best_seller", "best_price", "best_rated"):
+                    p = top3.get(key)
+                    if p:
+                        top3_list.append({
+                            "tag": p.get("tag", key),
+                            "title": (p.get("title") or "")[:120],
+                            "url": p.get("url", ""),
+                            "price": round(float(p.get("price", 0) or 0), 2),
+                            "rating": round(float(p.get("rating", 0) or 0), 1),
+                            "orders": int(p.get("orders", 0) or 0),
+                            "image_url": p.get("image_url", ""),
+                            "margin_pct": round(float(p.get("estimated_margin_pct", 0) or 0), 4),
+                        })
+                kw_data["aliexpress_top3_json"] = _json_step4.dumps(top3_list, ensure_ascii=False) if top3_list else ""
+
+                products_to_write.append(kw_data)
         except Exception as e:
             logger.error("Step 4 (AliExpress Matching) failed: %s", e, exc_info=True)
             stats["error_step4"] = str(e)
@@ -262,6 +277,7 @@ class ResearchPipeline:
                         "url": search_urls.get("aliexpress_search_url", ""),
                         "price": 0, "rating": 0, "orders": 0, "image_urls": [],
                     }
+                    kw_data["aliexpress_top3_json"] = ""
                     products_to_write.append(kw_data)
 
         logger.info("%d products matched on AliExpress, %d total to write",
@@ -348,6 +364,216 @@ class ResearchPipeline:
         logger.info("Added manual keyword: %s (%s)", keyword, country)
         return kw
 
+    def enrich_keywords(
+        self,
+        keyword_ids: list[str],
+        run_aliexpress: bool = True,
+    ) -> dict:
+        """
+        Run competition analysis (and optionally AliExpress search) on existing
+        keywords. Use this for manually added keywords to fill in competitors,
+        differentiation score, prices, and supplier link.
+
+        Args:
+            keyword_ids: List of keyword_id values to enrich.
+            run_aliexpress: If True, also search AliExpress and fill in supplier data.
+
+        Returns:
+            dict with enriched_count, aliexpress_matched_count, errors list.
+        """
+        stats = {"enriched_count": 0, "aliexpress_matched_count": 0, "errors": []}
+
+        if not keyword_ids:
+            return stats
+
+        all_keywords = self.store.get_keywords()
+        keywords_to_enrich = [kw for kw in all_keywords if kw.keyword_id in keyword_ids]
+        if not keywords_to_enrich:
+            stats["errors"].append("No matching keywords found for the selected IDs.")
+            return stats
+
+        all_products = self.store.get_products()
+        product_by_kw_id = {p.keyword_id: p for p in all_products if p.keyword_id}
+
+        for kw in keywords_to_enrich:
+            keyword_text = kw.keyword
+            country = kw.country or "DE"
+            language = kw.language or "de"
+
+            try:
+                comp_data = competition.analyze_competition(
+                    keyword=keyword_text,
+                    country=country,
+                    language=language,
+                    config=self.config,
+                )
+            except Exception as e:
+                logger.exception("Competition analysis failed for '%s': %s", keyword_text, e)
+                stats["errors"].append(f"{keyword_text}: {e}")
+                continue
+
+            if not comp_data:
+                stats["errors"].append(f"{keyword_text}: No competition data returned.")
+                continue
+
+            try:
+                def _num(v, default=0):
+                    if v is None:
+                        return default
+                    try:
+                        return float(v) if v != "" else default
+                    except (TypeError, ValueError):
+                        return default
+
+                def _str(v, default=""):
+                    return str(v).strip() if v is not None and str(v).strip() else default
+
+                median_price = _num(comp_data.get("median_competitor_price"), 0)
+                kw_updates = {
+                    "competitor_count": int(_num(comp_data.get("competitor_count"), 0)),
+                    "unique_product_count": int(_num(comp_data.get("unique_product_count"), 0)),
+                    "competition_type": _str(comp_data.get("competition_type"), ""),
+                    "differentiation_score": _num(comp_data.get("differentiation_score"), 0),
+                    "avg_competitor_price": _num(comp_data.get("avg_competitor_price"), 0),
+                    "median_competitor_price": median_price,
+                    "estimated_selling_price": median_price,
+                    "google_shopping_url": _str(comp_data.get("google_shopping_url"), ""),
+                    "competitor_pdp_url": _str(comp_data.get("competitor_pdp_url"), ""),
+                }
+
+                # Run AliExpress — fetch Top-3 listings (relaxed filters)
+                ali_product = None       # best seller (used for main aliexpress_* fields)
+                ali_top3_json = ""       # JSON with all 3 picks
+                if run_aliexpress:
+                    try:
+                        import json as _json
+                        selling_price_for_ali = median_price
+                        product = product_by_kw_id.get(kw.keyword_id)
+                        if product and product.selling_price:
+                            selling_price_for_ali = product.selling_price
+
+                        top3 = aliexpress.find_top3_matches(
+                            keyword=keyword_text,
+                            estimated_selling_price=selling_price_for_ali,
+                            country=country,
+                            language=language,
+                            config=self.config,
+                        )
+
+                        # Serialize the top-3 for storage (compact, only the fields we need)
+                        top3_list = []
+                        for key in ("best_seller", "best_price", "best_rated"):
+                            p = top3.get(key)
+                            if p:
+                                top3_list.append({
+                                    "tag": p.get("tag", key),
+                                    "title": (p.get("title") or "")[:120],
+                                    "url": p.get("url", ""),
+                                    "price": round(_num(p.get("price"), 0), 2),
+                                    "rating": round(_num(p.get("rating"), 0), 1),
+                                    "orders": int(_num(p.get("orders"), 0)),
+                                    "image_url": p.get("image_url", ""),
+                                    "margin_pct": round(_num(p.get("estimated_margin_pct"), 0), 4),
+                                })
+
+                        if top3_list:
+                            ali_top3_json = _json.dumps(top3_list, ensure_ascii=False)
+
+                        # Use the best seller as the primary AliExpress match
+                        # (keeps backward compat with the single-product fields)
+                        ali_product = top3.get("best_seller")
+                        if ali_product:
+                            kw_updates["aliexpress_url"] = _str(ali_product.get("url"), "")
+                            kw_updates["aliexpress_price"] = _num(ali_product.get("price"), 0)
+                            kw_updates["aliexpress_rating"] = _num(ali_product.get("rating"), 0)
+                            kw_updates["aliexpress_orders"] = int(_num(ali_product.get("orders"), 0))
+                            image_urls = ali_product.get("image_urls") or []
+                            kw_updates["aliexpress_image_urls"] = ",".join(str(u) for u in image_urls if u) if image_urls else ""
+                            stats["aliexpress_matched_count"] += 1
+
+                        if ali_top3_json:
+                            kw_updates["aliexpress_top3_json"] = ali_top3_json
+
+                    except Exception as e:
+                        logger.warning("AliExpress match failed for '%s': %s", keyword_text, e)
+                        stats["errors"].append(f"{keyword_text} (AliExpress): {e}")
+
+                self.store.update_keyword(kw.keyword_id, kw_updates)
+                stats["enriched_count"] += 1
+
+                product = product_by_kw_id.get(kw.keyword_id)
+                selling_price = median_price or (product.selling_price if product else 0)
+                product_updates = {
+                    "competitor_count": kw_updates["competitor_count"],
+                    "differentiation_score": kw_updates["differentiation_score"],
+                    "competition_type": kw_updates["competition_type"],
+                    "google_shopping_url": kw_updates["google_shopping_url"],
+                    "competitor_pdp_url": kw_updates["competitor_pdp_url"],
+                    "selling_price": selling_price,
+                    "test_status": ProductStatus.SOURCING.value,
+                }
+                if ali_product:
+                    product_updates["aliexpress_url"] = kw_updates["aliexpress_url"]
+                    product_updates["aliexpress_price"] = kw_updates["aliexpress_price"]
+                    product_updates["aliexpress_rating"] = kw_updates["aliexpress_rating"]
+                    product_updates["aliexpress_orders"] = kw_updates["aliexpress_orders"]
+                    product_updates["aliexpress_image_urls"] = kw_updates.get("aliexpress_image_urls", "")
+                if ali_top3_json:
+                    product_updates["aliexpress_top3_json"] = ali_top3_json
+
+                if product:
+                    self.store.update_product(product.product_id, product_updates)
+                    synced_product = self.store.get_product(product.product_id)
+                    if synced_product:
+                        self.store.sync_product_to_agent_tasks(synced_product)
+                else:
+                    # Create product so manual flow = AI flow (same as after discovery)
+                    new_product = Product(
+                        keyword_id=kw.keyword_id,
+                        keyword=keyword_text,
+                        country=country,
+                        language=language,
+                        monthly_search_volume=kw.monthly_search_volume,
+                        estimated_cpc=kw.estimated_cpc,
+                        competition_level=kw.competition_level or "",
+                        competitor_count=product_updates["competitor_count"],
+                        differentiation_score=product_updates["differentiation_score"],
+                        competition_type=product_updates["competition_type"],
+                        google_shopping_url=product_updates["google_shopping_url"],
+                        competitor_pdp_url=product_updates["competitor_pdp_url"],
+                        aliexpress_url=product_updates.get("aliexpress_url", ""),
+                        aliexpress_price=product_updates.get("aliexpress_price", 0),
+                        aliexpress_rating=product_updates.get("aliexpress_rating", 0),
+                        aliexpress_orders=product_updates.get("aliexpress_orders", 0),
+                        aliexpress_image_urls=product_updates.get("aliexpress_image_urls", ""),
+                        aliexpress_top3_json=product_updates.get("aliexpress_top3_json", ""),
+                        selling_price=selling_price,
+                        test_status=ProductStatus.SOURCING.value,
+                    )
+                    self.store.add_product(new_product)
+                    log = ActionLog(
+                        product_id=new_product.product_id,
+                        action_type=ActionType.SOURCING_STARTED.value,
+                        old_status=ProductStatus.DISCOVERED.value,
+                        new_status=ProductStatus.SOURCING.value,
+                        reason="Enriched from manual/AI keyword — same process as discovery",
+                        details=f"Competitors: {product_updates['competitor_count']}, "
+                                f"Diff: {product_updates['differentiation_score']:.0f}, "
+                                f"Price: €{selling_price:.2f}",
+                        country=country,
+                    )
+                    self.store.add_log(log)
+                    self.store.sync_product_to_agent_tasks(new_product)
+            except Exception as e:
+                logger.exception("Enrich failed for '%s': %s", keyword_text, e)
+                stats["errors"].append(f"{keyword_text}: {e}")
+
+        logger.info(
+            "Enrich complete: %d enriched, %d AliExpress matches, %d errors",
+            stats["enriched_count"], stats["aliexpress_matched_count"], len(stats["errors"]),
+        )
+        return stats
+
     def _create_product_entry(self, kw_data: dict, country: str, language: str):
         """Create a keyword and product entry from enriched keyword data."""
         ali_match = kw_data.get("aliexpress_match", {})
@@ -365,6 +591,7 @@ class ResearchPipeline:
         competitor_pdp_url = kw_data.get("competitor_pdp_url", "")
 
         # Create keyword record
+        top3_json = kw_data.get("aliexpress_top3_json", "")
         kw = KeywordResearch(
             keyword=keyword_text,
             country=country,
@@ -387,6 +614,7 @@ class ResearchPipeline:
             aliexpress_rating=ali_match.get("rating", 0),
             aliexpress_orders=ali_match.get("orders", 0),
             aliexpress_image_urls=",".join(ali_match.get("image_urls", [])),
+            aliexpress_top3_json=top3_json,
         )
         self.store.add_keyword(kw)
 
@@ -409,6 +637,7 @@ class ResearchPipeline:
             aliexpress_rating=ali_match.get("rating", 0),
             aliexpress_orders=ali_match.get("orders", 0),
             aliexpress_image_urls=",".join(ali_match.get("image_urls", [])),
+            aliexpress_top3_json=top3_json,
             selling_price=kw_data.get("median_competitor_price", 0),
             test_status=ProductStatus.SOURCING.value,
         )

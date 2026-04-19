@@ -1,21 +1,26 @@
 """
-AI Image Generation Pipeline (v7 — Conversational / Responses API).
+AI Image Generation Pipeline (v9 — Study-first conversational).
 
-Two modes of operation:
+CONVERSATIONAL pipeline (best quality):
 
-A) CONVERSATIONAL MODE (Responses API) — when org is verified:
-   Replicates the ChatGPT experience. Each image is a turn in a
-   multi-turn conversation, so the model remembers the reference image
-   and every image it has already created. This produces the best
-   consistency across all 5 images.
+Turn 0   — Upload reference image + ask the model to describe it in EXTREME
+           detail (text-only response, NO image generation). The model
+           internalises every physical detail: shape, color, texture,
+           accessories, button layout, display, cable, stitching, etc.
+           This mimics what you do in ChatGPT when you first show an image
+           and discuss it before asking for generations.
 
-B) CHAINED MODE (Images API fallback) — if Responses API is blocked:
-   Falls back to the previous approach: Image 1 is generated from the
-   competitor reference, all subsequent images use Image 1 as input,
-   each with a detailed product spec + instructions in the prompt.
+Turns 1-5 — Generate each image in the SAME conversation. The model already
+            knows the product intimately from Turn 0, so all 5 images stay
+            consistent. Each turn inherits full conversation context via
+            previous_response_id.
 
-Pipeline order (both modes):
-1. Main product       — from competitor ref → becomes "canonical" product
+CHAINED MODE (fallback if Responses API is unavailable):
+   All 5 images use gpt-image-1 images.edit. Image 1 is generated from the
+   competitor reference, all subsequent images use Image 1 as input.
+
+Pipeline order:
+1. Main product       — faithful reproduction on white background
 2. Lifestyle (sofa)   — keep exact same product
 3. Infographic        — feature labels in target language
 4. Detail close-up    — controller & fabric macro
@@ -131,9 +136,21 @@ class AIImageGenerator:
         product_instructions: str,
         num_images: int,
     ) -> list[dict]:
-        """Generate images via multi-turn Responses API conversation."""
+        """
+        Study-first conversational pipeline.
 
-        # Upload reference image to OpenAI Files API
+        Turn 0: Upload reference image and ask the model to study it in
+                extreme detail — text only, NO image generation.  This
+                mimics the ChatGPT pattern of showing an image first and
+                discussing it before generating.
+
+        Turns 1-5: Generate each product image in the same conversation.
+                   The model already knows every detail from Turn 0.
+        """
+
+        generated_images: list[dict] = []
+
+        # ── Upload reference image ──
         logger.info("Uploading reference image to OpenAI …")
         file_id = self._upload_file(ref_bytes)
         if not file_id:
@@ -144,7 +161,7 @@ class AIImageGenerator:
             )
         logger.info("Reference uploaded: file_id=%s", file_id)
 
-        # Build conversation prompts
+        # ── Build spec block ──
         spec_block = ""
         if product_instructions:
             spec_block = f"\n\nUSER INSTRUCTIONS: {product_instructions}"
@@ -152,11 +169,77 @@ class AIImageGenerator:
         image_specs = self._build_conversation_prompts(
             product_description, lang_name, features, spec_block, num_images
         )
+        if not image_specs:
+            return generated_images
 
-        # Generate images via multi-turn conversation
-        generated_images: list[dict] = []
-        previous_response_id = None
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        #  TURN 0: Study the reference image (text-only, NO generation)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        logger.info("Turn 0: Asking model to study reference image (no generation) …")
 
+        study_prompt = (
+            f"I am going to ask you to generate {num_images} product images "
+            f"for an e-commerce listing. But first, study this reference image "
+            f"in EXTREME detail.\n\n"
+            f"Product: {product_description}\n\n"
+            f"Describe EXACTLY what you see:\n"
+            f"1. Main product: exact shape, exact color/shade, material type, "
+            f"   texture pattern, folding style, dimensions ratio\n"
+            f"2. Every accessory: if there is a remote control, describe the "
+            f"   EXACT number of buttons, their layout (rows/columns), the "
+            f"   display type and what it shows, the housing shape, the color, "
+            f"   where the cable connects, the cable color and thickness\n"
+            f"3. Stitching patterns, seams, quilting pattern\n"
+            f"4. Any labels, tags, or markings (we will remove these)\n"
+            f"5. Color variations across the product\n\n"
+            f"Be extremely specific — count buttons, describe their shape "
+            f"(round/square/triangular), note the exact position of every "
+            f"element. I need you to memorize this so that when you generate "
+            f"images, the product looks IDENTICAL in every single one.\n\n"
+            f"DO NOT generate any image yet. Just describe what you see."
+        )
+
+        try:
+            study_response = self.client.responses.create(
+                model="gpt-4o",
+                input=[{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_image",
+                            "file_id": file_id,
+                        },
+                        {
+                            "type": "input_text",
+                            "text": study_prompt,
+                        },
+                    ],
+                }],
+                # NO tools — text-only response, no image generation
+            )
+
+            # Log what the model saw
+            study_text = ""
+            for output in study_response.output:
+                if hasattr(output, "content"):
+                    for part in output.content:
+                        if hasattr(part, "text"):
+                            study_text += part.text
+            if study_text:
+                logger.info("Model's study notes (first 500 chars): %s", study_text[:500])
+            else:
+                logger.info("Model returned study response (no text extracted)")
+
+            previous_response_id = study_response.id
+            logger.info("✓ Turn 0 complete — model has studied the product")
+
+        except Exception as e:
+            logger.error("Turn 0 (study) failed: %s — continuing without study", e)
+            previous_response_id = None
+
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        #  TURNS 1-N: Generate images in the same conversation
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         for i, spec in enumerate(image_specs):
             image_type = spec["image_type"]
             prompt = spec["prompt"]
@@ -166,42 +249,26 @@ class AIImageGenerator:
                 i + 1, num_images, image_type,
             )
 
-            # First turn includes the reference image
             if i == 0:
-                input_content = [
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "input_image",
-                                "file_id": file_id,
-                            },
-                            {
-                                "type": "input_text",
-                                "text": (
-                                    f"This is a product image for: {product_description}. "
-                                    f"Study this image in extreme detail — the product shape, "
-                                    f"color, fabric texture, stitching pattern, and especially "
-                                    f"any accessories like remote controls (exact button count, "
-                                    f"button layout, display type, housing shape, cable). "
-                                    f"You will be generating multiple product images based on "
-                                    f"this reference. You MUST keep the product looking EXACTLY "
-                                    f"the same across ALL images — same color, same texture, "
-                                    f"same controller design, same details. "
-                                    f"Remove any logos, watermarks, or brand names. "
-                                    f"{spec_block}\n\n"
-                                    f"Now generate the first image:\n{prompt}"
-                                ),
-                            },
-                        ],
-                    }
-                ]
+                # First generation turn — remind the model about the reference
+                generation_prompt = (
+                    f"Now generate the first product image based on the "
+                    f"reference image you just studied. "
+                    f"CRITICAL: The product must look EXACTLY like what you "
+                    f"described — same color, same texture, same accessories "
+                    f"with the exact same button count, layout, display, and "
+                    f"housing shape. Do NOT change any physical detail of the "
+                    f"product. Only remove logos, watermarks, and brand names."
+                    f"{spec_block}\n\n{prompt}"
+                )
             else:
-                # Subsequent turns reference all previous context automatically
-                input_content = (
-                    f"Now generate the next product image. Keep the EXACT same "
-                    f"product appearance — same color, same texture, same controller "
-                    f"design as in all the previous images you generated. "
+                # Subsequent turns — the model remembers everything
+                generation_prompt = (
+                    f"Now generate the next product image. The product MUST "
+                    f"look EXACTLY the same as in the reference and in all "
+                    f"previous images you generated — same color, same "
+                    f"texture, same accessories with the exact same details. "
+                    f"Do NOT change any physical detail of the product. "
                     f"Remove any logos, watermarks, or brand names.\n\n"
                     f"{prompt}"
                 )
@@ -209,7 +276,7 @@ class AIImageGenerator:
             try:
                 response = self.client.responses.create(
                     model="gpt-4o",
-                    input=input_content,
+                    input=generation_prompt,
                     tools=[{
                         "type": "image_generation",
                         "quality": "high",
@@ -242,8 +309,6 @@ class AIImageGenerator:
 
             except Exception as e:
                 logger.error("  Image %d (%s) failed: %s", i + 1, image_type, e)
-                # Don't break the chain — if one fails, try the rest
-                # But keep the previous_response_id from the last success
 
         logger.info(
             "Conversational pipeline complete: %d/%d images",

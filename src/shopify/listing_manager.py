@@ -12,7 +12,7 @@ from typing import Optional
 
 import requests
 
-from src.core.config import AppConfig, SHOPIFY_SHOP_URL, SHOPIFY_ACCESS_TOKEN
+from src.core.config import AppConfig, SHOPIFY_SHOP_URL, SHOPIFY_STOREFRONT_DOMAIN, SHOPIFY_ACCESS_TOKEN
 from src.core.interfaces import ProductListingService
 from src.core.models import Product
 
@@ -115,9 +115,10 @@ class ShopifyListingManager(ProductListingService):
             shopify_product = result.get("product", {})
             shopify_id = str(shopify_product.get("id", ""))
 
-            # Build the product URL
+            # Build the product URL using custom domain if available
             handle = shopify_product.get("handle", "")
-            product_url = f"https://{self.shop_url.replace('.myshopify.com', '')}.com/products/{handle}"
+            domain = SHOPIFY_STOREFRONT_DOMAIN or self.shop_url
+            product_url = f"https://{domain}/products/{handle}"
 
             logger.info(
                 "Created Shopify listing: %s (ID: %s)",
@@ -200,6 +201,71 @@ class ShopifyListingManager(ProductListingService):
             logger.error("Failed to update Shopify listing %s: %s", listing_id, e)
             return False
 
+    def get_product_status(self, listing_id: str) -> Optional[str]:
+        """Get the current status of a Shopify product (active/draft/archived).
+
+        Returns:
+            Status string ('active', 'draft', 'archived') or None on error.
+        """
+        info = self.get_product_info(listing_id)
+        return info.get("status") if info else None
+
+    def get_product_info(self, listing_id: str) -> Optional[dict]:
+        """Fetch product status, handle, and preview URL via GraphQL.
+
+        Returns:
+            dict with 'status', 'handle', 'preview_url', 'storefront_url' or None on error.
+        """
+        try:
+            gql_url = f"https://{self.shop_url}/admin/api/{self.api_version}/graphql.json"
+            gid = f"gid://shopify/Product/{listing_id}"
+            query = """
+            query ProductInfo($id: ID!) {
+                product(id: $id) {
+                    status
+                    handle
+                    onlineStorePreviewUrl
+                }
+            }
+            """
+            response = requests.post(
+                gql_url,
+                json={"query": query, "variables": {"id": gid}},
+                headers=self._headers(),
+                timeout=15,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            product = data.get("data", {}).get("product")
+            if not product:
+                errors = data.get("errors", [])
+                logger.error("GraphQL product query returned no product for %s: %s", listing_id, errors)
+                return None
+
+            handle = product.get("handle", "")
+            status = (product.get("status") or "").lower()
+            preview_url = product.get("onlineStorePreviewUrl", "")
+
+            # Build proper storefront URL
+            domain = SHOPIFY_STOREFRONT_DOMAIN or self.shop_url
+            storefront_url = f"https://{domain}/products/{handle}" if handle else ""
+
+            return {
+                "status": status,
+                "handle": handle,
+                "preview_url": preview_url,
+                "storefront_url": storefront_url,
+            }
+
+        except requests.exceptions.HTTPError as e:
+            body = e.response.text[:300] if e.response else ""
+            logger.error("Shopify GraphQL error for product %s: %s %s", listing_id, e, body)
+            return None
+        except Exception as e:
+            logger.error("Failed to get product info for %s: %s", listing_id, e)
+            return None
+
     def delete_listing(self, listing_id: str) -> bool:
         """Delete a Shopify product listing."""
         try:
@@ -241,6 +307,42 @@ class ShopifyListingManager(ProductListingService):
 
         except Exception as e:
             logger.error("Failed to add images to listing %s: %s", listing_id, e)
+            return False
+
+    def replace_images(self, listing_id: str, images: list[bytes]) -> bool:
+        """Replace ALL images on a product listing (delete existing, upload new).
+
+        This makes image pushing idempotent — safe to call multiple times.
+        """
+        try:
+            # Step 1: Get existing images
+            response = requests.get(
+                f"{self.base_url}/products/{listing_id}/images.json",
+                headers=self._headers(),
+                timeout=30,
+            )
+            response.raise_for_status()
+            existing = response.json().get("images", [])
+
+            # Step 2: Delete existing images
+            for img in existing:
+                img_id = img["id"]
+                del_resp = requests.delete(
+                    f"{self.base_url}/products/{listing_id}/images/{img_id}.json",
+                    headers=self._headers(),
+                    timeout=30,
+                )
+                if del_resp.status_code not in (200, 204):
+                    logger.warning("Failed to delete image %s: %s", img_id, del_resp.status_code)
+                time.sleep(0.3)
+
+            logger.info("Deleted %d existing images from listing %s", len(existing), listing_id)
+
+            # Step 3: Upload new images
+            return self.add_images(listing_id, images)
+
+        except Exception as e:
+            logger.error("Failed to replace images on listing %s: %s", listing_id, e)
             return False
 
     def set_product_metafield(

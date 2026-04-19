@@ -3,8 +3,8 @@ Google Ads PMax campaign management.
 Manages per-country campaign pairs (Testing + Winners) and budget scaling.
 
 Campaign naming convention:
-    "Qoveliqo - Testing - {COUNTRY}"   e.g. "Qoveliqo - Testing - DE"
-    "Qoveliqo - Winners - {COUNTRY}"   e.g. "Qoveliqo - Winners - DE"
+    "Blue Ocean - Testing - {COUNTRY}"   e.g. "Blue Ocean - Testing - DE"
+    "Blue Ocean - Winners - {COUNTRY}"   e.g. "Blue Ocean - Winners - DE"
 """
 
 from __future__ import annotations
@@ -27,9 +27,13 @@ from src.core.config import (
 
 logger = logging.getLogger(__name__)
 
-# Campaign name templates (country code is appended)
-TESTING_CAMPAIGN_PREFIX = "Qoveliqo - Testing"
-WINNERS_CAMPAIGN_PREFIX = "Qoveliqo - Winners"
+# Campaign name templates (country code is appended). These strings become
+# the actual campaign names in the Google Ads UI — keep them short and stable.
+# Renamed from "Qoveliqo - ..." during the Blue Ocean Platform rebrand; if you
+# ever have existing Qoveliqo campaigns in production, they'll need to be
+# archived or renamed manually (the Ads API treats the name as the key).
+TESTING_CAMPAIGN_PREFIX = "Blue Ocean - Testing"
+WINNERS_CAMPAIGN_PREFIX = "Blue Ocean - Winners"
 
 
 def testing_campaign_name(country: str) -> str:
@@ -66,8 +70,8 @@ class CampaignManager:
     2. Winners Campaign: Scalable budget, includes winner products
 
     Example for DE:
-        "Qoveliqo - Testing - DE"
-        "Qoveliqo - Winners - DE"
+        "Blue Ocean - Testing - DE"
+        "Blue Ocean - Winners - DE"
     """
 
     def __init__(self, config: AppConfig = None):

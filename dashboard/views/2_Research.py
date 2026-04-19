@@ -30,15 +30,34 @@ def _get_country_language(countries_list, code: str) -> str:
 
 
 def main():
-    st.title("🔬 Research")
+    st.title("Research")
+
+    # Align columns vertically so checkbox + button sit at same height as heading
+    st.markdown(
+        """<style>
+        div[data-testid="stHorizontalBlock"] {
+            align-items: center;
+        }
+        </style>""",
+        unsafe_allow_html=True,
+    )
 
     tab1, tab2, tab3 = st.tabs([
-        "📊 Research Results", "✍️ Manual Input", "🚀 Start Discovery"
+        "Research Results", "Manual Input", "Start Discovery"
     ])
 
     try:
         from src.sheets.manager import get_data_store
+        import src.sheets.manager as _sheets_mgr
         from src.core.config import AppConfig
+
+        # Ensure new columns are recognised even if module was loaded before update
+        if "aliexpress_top3_json" not in _sheets_mgr.KEYWORD_HEADERS:
+            idx = _sheets_mgr.KEYWORD_HEADERS.index("aliexpress_image_urls") + 1
+            _sheets_mgr.KEYWORD_HEADERS.insert(idx, "aliexpress_top3_json")
+        if "aliexpress_top3_json" not in _sheets_mgr.PRODUCT_HEADERS:
+            idx = _sheets_mgr.PRODUCT_HEADERS.index("aliexpress_image_urls") + 1
+            _sheets_mgr.PRODUCT_HEADERS.insert(idx, "aliexpress_top3_json")
 
         store = get_data_store()
         config = AppConfig()
@@ -49,9 +68,16 @@ def main():
 
     # --- Research Results Tab ---
     with tab1:
-        st.subheader("Latest Research Results")
+        # Single row: title + checkbox + button — all same height
+        hdr1, hdr2, hdr3 = st.columns([3, 1.2, 1.3])
+        with hdr1:
+            st.subheader("Latest Research Results")
+        with hdr2:
+            run_aliexpress = st.checkbox("Also search AliExpress", value=True, key="enrich_aliexpress")
+        with hdr3:
+            run_btn = st.button("Run competition research", type="primary", key="enrich_btn", use_container_width=True)
 
-        # Filter controls
+        # Filters row
         col1, col2, col3 = st.columns(3)
         with col1:
             countries = _get_country_codes(config.countries)
@@ -82,22 +108,19 @@ def main():
             else:
                 keywords.sort(key=lambda k: k.created_at, reverse=True)
 
-            # Display as table with clickable links
+            # Build table rows with Select checkbox column
             rows = []
             for k in keywords:
-                # Build Google Shopping URL (from data or generate fallback)
                 gs_url = k.google_shopping_url
                 if not gs_url:
                     encoded_kw = k.keyword.replace(" ", "+")
                     gs_url = f"https://google.de/search?tbm=shop&q={encoded_kw}"
-
-                # Build AliExpress URL (from data or generate fallback)
                 ali_url = k.aliexpress_url
                 if not ali_url:
                     encoded_kw = k.keyword.replace(" ", "+")
                     ali_url = f"https://www.aliexpress.com/wholesale?SearchText={encoded_kw}"
-
                 rows.append({
+                    "Select": False,
                     "Keyword": k.keyword,
                     "Country": k.country,
                     "Volume": k.monthly_search_volume,
@@ -117,11 +140,17 @@ def main():
                 })
 
             df = pd.DataFrame(rows)
-            st.dataframe(
+            # Table full width
+            edited_df = st.data_editor(
                 df,
                 use_container_width=True,
                 height=500,
                 column_config={
+                    "Select": st.column_config.CheckboxColumn(
+                        "Select",
+                        help="Tick to run competition research on this keyword",
+                        width="small",
+                    ),
                     "Keyword": st.column_config.TextColumn(
                         "Keyword",
                         help="The product-intent search term discovered by AI or added manually",
@@ -192,7 +221,54 @@ def main():
                         width="small",
                     ),
                 },
+                key="research_table",
             )
+
+            selected_ids = [
+                keywords[i].keyword_id
+                for i in range(min(len(keywords), len(edited_df)))
+                if edited_df.iloc[i].get("Select")
+            ]
+            if run_btn:
+                if not selected_ids:
+                    st.warning("Tick at least one keyword in the table.")
+                else:
+                    import importlib
+                    import src.research.aliexpress as _ali_mod
+                    import src.research.pipeline as _pipeline_mod
+                    import src.sheets.manager as _sheets_mgr
+                    from src.core.config import ALIEXPRESS_APP_KEY
+                    importlib.reload(_ali_mod)
+                    importlib.reload(_pipeline_mod)
+                    # Patch sheet headers in running module so new columns are recognised
+                    if "aliexpress_top3_json" not in _sheets_mgr.KEYWORD_HEADERS:
+                        idx = _sheets_mgr.KEYWORD_HEADERS.index("aliexpress_image_urls") + 1
+                        _sheets_mgr.KEYWORD_HEADERS.insert(idx, "aliexpress_top3_json")
+                    if "aliexpress_top3_json" not in _sheets_mgr.PRODUCT_HEADERS:
+                        idx = _sheets_mgr.PRODUCT_HEADERS.index("aliexpress_image_urls") + 1
+                        _sheets_mgr.PRODUCT_HEADERS.insert(idx, "aliexpress_top3_json")
+
+                    # Warn about missing AliExpress credentials
+                    if run_aliexpress and (not ALIEXPRESS_APP_KEY or ALIEXPRESS_APP_KEY.startswith("your_")):
+                        st.warning(
+                            "**AliExpress API credentials not configured.** "
+                            "Competition analysis will run, but AliExpress product data will be skipped. "
+                            "Add your AliExpress API key in the `.env` file "
+                            "(`ALIEXPRESS_APP_KEY`, `ALIEXPRESS_APP_SECRET`, `ALIEXPRESS_TRACKING_ID`)."
+                        )
+
+                    from src.research.pipeline import ResearchPipeline
+                    pipeline = ResearchPipeline(store, config)
+                    with st.spinner("Running competition analysis..."):
+                        stats = pipeline.enrich_keywords(selected_ids, run_aliexpress=run_aliexpress)
+                    st.success(
+                        f"Enriched {stats['enriched_count']} keyword(s). "
+                        f"AliExpress matched: {stats['aliexpress_matched_count']}."
+                    )
+                    if stats.get("errors"):
+                        for err in stats["errors"]:
+                            st.error(err)
+                    st.rerun()
 
             st.caption(f"Showing {len(keywords)} keywords")
 
@@ -208,21 +284,105 @@ def main():
             if selected_keyword:
                 kw = next(k for k in keywords if k.keyword == selected_keyword)
 
+                def _fmt_num(n):
+                    if n is None:
+                        return "—"
+                    if isinstance(n, (int, float)):
+                        return f"{int(n):,}" if n == int(n) else f"{n:,.2f}"
+                    return str(n)
+                def _fmt_eur(n):
+                    if n is None or (isinstance(n, (int, float)) and n == 0):
+                        return "—"
+                    return f"€{float(n):.2f}"
+                def _fmt_str(s):
+                    return (s or "").replace("_", " ").title() or "—"
+
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.metric("Monthly Search Volume", f"{kw.monthly_search_volume:,}")
-                    st.metric("Estimated CPC", f"€{kw.estimated_cpc:.2f}")
-                    st.metric("Competition", kw.competition_level)
+                    st.metric("Monthly Search Volume", _fmt_num(kw.monthly_search_volume))
+                    st.metric("Estimated CPC", _fmt_eur(kw.estimated_cpc))
+                    st.metric("Competition", _fmt_str(kw.competition_level))
 
                 with col2:
-                    st.metric("Competitors", kw.competitor_count)
-                    st.metric("Differentiation Score", f"{kw.differentiation_score:.0f}/100")
-                    st.metric("Competition Type", kw.competition_type.replace("_", " ").title())
+                    st.metric("Competitors", _fmt_num(kw.competitor_count))
+                    st.metric("Differentiation Score", f"{kw.differentiation_score:.0f}/100" if kw.differentiation_score is not None else "—/100")
+                    st.metric("Competition Type", _fmt_str(kw.competition_type))
 
                 with col3:
-                    st.metric("Avg Competitor Price", f"€{kw.avg_competitor_price:.2f}")
-                    st.metric("AliExpress Price", f"€{kw.aliexpress_price:.2f}" if kw.aliexpress_price else "N/A")
-                    st.metric("AliExpress Rating", f"{kw.aliexpress_rating:.1f}/5" if kw.aliexpress_rating else "N/A")
+                    st.metric("Median Competitor Price", _fmt_eur(kw.median_competitor_price))
+                    st.metric("Avg Competitor Price", _fmt_eur(kw.avg_competitor_price))
+
+                # --- Top 3 AliExpress Listings ---
+                st.markdown("---")
+                st.markdown("**Top 3 AliExpress Listings**")
+
+                import json as _json
+                top3_items = []
+                try:
+                    raw = getattr(kw, "aliexpress_top3_json", "") or ""
+                    if raw:
+                        top3_items = _json.loads(raw)
+                except Exception:
+                    top3_items = []
+
+                if top3_items:
+                    ali_cols = st.columns(len(top3_items))
+                    for idx, item in enumerate(top3_items):
+                        with ali_cols[idx]:
+                            tag = item.get("tag", "")
+                            title = item.get("title", "Unknown product")
+                            price = item.get("price", 0)
+                            rating = item.get("rating", 0)
+                            orders = item.get("orders", 0)
+                            url = item.get("url", "")
+                            margin_pct = item.get("margin_pct", 0)
+                            img = item.get("image_url", "")
+
+                            # Tag badge
+                            if tag == "Best Seller":
+                                st.markdown(f"**:orange[{tag}]**")
+                            elif tag == "Best Price":
+                                st.markdown(f"**:green[{tag}]**")
+                            elif tag == "Best Rated":
+                                st.markdown(f"**:blue[{tag}]**")
+                            else:
+                                st.markdown(f"**{tag}**")
+
+                            # Product image
+                            if img:
+                                st.image(img, width=120)
+
+                            # Title (truncated)
+                            st.caption(title[:80] + ("..." if len(title) > 80 else ""))
+
+                            # Metrics
+                            st.metric("Price", f"€{price:.2f}" if price else "—")
+                            st.metric("Rating", f"{rating:.1f}/5" if rating else "—")
+                            st.metric("Orders", f"{orders:,}" if orders else "—")
+
+                            # Margin indicator
+                            if margin_pct and margin_pct != 0:
+                                pct_display = f"{margin_pct * 100:.0f}%"
+                                if margin_pct >= 0.3:
+                                    st.success(f"Est. margin: {pct_display}")
+                                elif margin_pct >= 0.15:
+                                    st.warning(f"Est. margin: {pct_display}")
+                                else:
+                                    st.error(f"Est. margin: {pct_display}")
+
+                            # Link
+                            if url:
+                                st.markdown(f"[View on AliExpress]({url})")
+                else:
+                    from src.core.config import ALIEXPRESS_APP_KEY as _ali_key
+                    if not _ali_key or _ali_key.startswith("your_"):
+                        st.warning(
+                            "**AliExpress API not configured.** "
+                            "Add your credentials to `.env` (`ALIEXPRESS_APP_KEY`, "
+                            "`ALIEXPRESS_APP_SECRET`, `ALIEXPRESS_TRACKING_ID`) to see product data here."
+                        )
+                    else:
+                        st.info("No AliExpress data yet. Run competition research with 'Also search AliExpress' enabled.")
 
                 # Links section
                 st.markdown("---")
@@ -230,19 +390,15 @@ def main():
                 link_cols = st.columns(2)
                 with link_cols[0]:
                     if kw.google_shopping_url:
-                        st.markdown(f"🔍 [View on Google Shopping]({kw.google_shopping_url})")
+                        st.markdown(f"[View on Google Shopping]({kw.google_shopping_url})")
                     else:
-                        # Generate a fallback Google Shopping URL
                         encoded_kw = kw.keyword.replace(" ", "+")
                         gs_url = f"https://google.de/search?tbm=shop&q={encoded_kw}"
-                        st.markdown(f"🔍 [Search Google Shopping]({gs_url})")
+                        st.markdown(f"[Search Google Shopping]({gs_url})")
                 with link_cols[1]:
-                    if kw.aliexpress_url:
-                        st.markdown(f"🛒 [View on AliExpress]({kw.aliexpress_url})")
-                    else:
-                        encoded_kw = kw.keyword.replace(" ", "+")
-                        ali_url = f"https://www.aliexpress.com/wholesale?SearchText={encoded_kw}"
-                        st.markdown(f"🛒 [Search AliExpress]({ali_url})")
+                    encoded_kw = kw.keyword.replace(" ", "+")
+                    ali_url = f"https://www.aliexpress.com/wholesale?SearchText={encoded_kw}"
+                    st.markdown(f"[Search AliExpress]({ali_url})")
 
                 if kw.notes:
                     st.info(f"Notes: {kw.notes}")

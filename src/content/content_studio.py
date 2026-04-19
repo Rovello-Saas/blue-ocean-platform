@@ -30,7 +30,7 @@ from src.content.product_content import (
 logger = logging.getLogger(__name__)
 
 # Local cache directory (same pattern as Image Studio)
-CACHE_DIR = Path(tempfile.gettempdir()) / "qoveliqo_content_studio"
+CACHE_DIR = Path(tempfile.gettempdir()) / "blue_ocean_content_studio"
 CACHE_DIR.mkdir(exist_ok=True)
 
 # Available emoji sets for benefit headers

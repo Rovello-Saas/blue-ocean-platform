@@ -1,8 +1,8 @@
-# Qoveliqo Ads — Google Ads API Design Document
+# Blue Ocean Platform — Google Ads API Design Document
 
 ## Overview
 
-Qoveliqo Ads is an internal product research and Google Ads management tool built by Blue Ocean Commerce B.V. It uses the Google Ads API to automate product research and campaign performance monitoring for our own Google Shopping / Performance Max campaigns.
+Blue Ocean Platform is an internal product research and Google Ads management tool built by Blue Ocean Commerce B.V. It uses the Google Ads API to automate product research and campaign performance monitoring for our own Google Shopping / Performance Max campaigns.
 
 ## API Usage
 
@@ -35,8 +35,7 @@ Qoveliqo Ads is an internal product research and Google Ads management tool buil
 
 ## Account Structure
 
-- Manager Account (MCC): 784-561-6117
-- Client Account: 143-564-5968 (Blue Ocean Commerce)
+- Google Ads Account: 188-465-2074 (Blue Ocean Commerce B.V., login `info@movanella.com`)
 - Campaign types: Performance Max (Google Shopping)
 
 ## Rate Limits & Compliance
@@ -50,5 +49,5 @@ Qoveliqo Ads is an internal product research and Google Ads management tool buil
 ## Contact
 
 - Company: Blue Ocean Commerce B.V.
-- Website: https://goveliqo.com
-- Email: info@goveliqo.com
+- Website: https://movanella.com
+- Email: info@rovelloshop.com

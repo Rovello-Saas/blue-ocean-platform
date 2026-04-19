@@ -1,6 +1,11 @@
-# Qoveliqo Ads — AI-Driven Product Research & Google Ads Automation
+# Blue Ocean Platform — Unified Commerce Cockpit
 
-Fully automated system that discovers profitable dropshipping products via AI keyword research, validates economics, generates product content and images, creates Shopify listings, manages Google Ads Performance Max campaigns, and makes automated scale/maintain/kill decisions.
+Fully automated platform that runs two parallel workflows from a single Streamlit cockpit:
+
+- **Clone workflow** (Meta / Merivalo-style): scrape a competitor page, translate, generate a Shopify listing, import reviews.
+- **Research workflow** (Google / Movanella-style): keyword research → AliExpress sourcing → AI content generation → Shopify listing → Google PMax testing → automated scale/kill decisions.
+
+Part A (this repo) is the Python/Streamlit platform. Part B is a Node page-cloner that runs as a sibling service and is called over HTTP from the clone workflow.
 
 ## Quick Start
 
@@ -24,8 +29,8 @@ Create a new Google Sheet and add the Sheet ID to your `.env` file. The system w
 ### 4. Create Google Ads PMax campaigns
 
 Create two Performance Max campaigns in your Google Ads account:
-- **"Qoveliqo - Testing"** — Fixed daily budget for testing new products
-- **"Qoveliqo - Winners"** — Higher budget for proven products
+- **"Blue Ocean - Testing"** — Fixed daily budget for testing new products
+- **"Blue Ocean - Winners"** — Higher budget for proven products
 
 Set up listing groups to filter by `custom_label_0`.
 
@@ -85,13 +90,15 @@ Research Pipeline → Google Sheet → Content Generation → Shopify → Google
 | Google Sheets | Service Account JSON | https://console.cloud.google.com → APIs → Credentials |
 | Google Merchant Center | Merchant ID | https://merchants.google.com |
 | Shopify | Admin API Access Token | Shopify Admin → Settings → Apps → Develop apps |
-| AliExpress | Affiliate API Key | https://portals.aliexpress.com |
+| AliExpress | Drop Shipping App Key + Secret | https://openservice.aliexpress.com (Portals tracking ID via https://portals.aliexpress.com) |
 | SerpAPI | API Key | https://serpapi.com |
+| Gemini | API Key | https://aistudio.google.com (bind to your GCP project for billing) |
+| Fal.ai | Key ID:Secret | https://fal.ai/dashboard/keys |
 
 ## Project Structure
 
 ```
-qoveliqo-ads/
+blue-ocean-platform/
 ├── run.py                         # Main entry point
 ├── requirements.txt
 ├── .env.example
@@ -120,6 +127,19 @@ qoveliqo-ads/
 pytest tests/ -v
 ```
 
+## Verifying the stack
+
+After any credential rotation, billing change, or migration, run the unified
+smoke test to confirm every external API is live and bound to the right entity:
+
+```bash
+python scripts/smoke_test.py           # all checks
+python scripts/smoke_test.py -v        # + per-check details
+python scripts/smoke_test.py --only google_ads aliexpress
+```
+
+Exits 0 only if every check passes.
+
 ## License
 
-Proprietary — Qoveliqo
+Proprietary — Blue Ocean Commerce B.V.

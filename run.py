@@ -1,5 +1,5 @@
 """
-Main entry point for the Qoveliqo Ads automation system.
+Main entry point for the Blue Ocean Platform.
 Starts the background scheduler and the Streamlit dashboard.
 
 Usage:
@@ -34,7 +34,7 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler("qoveliqo_ads.log"),
+        logging.FileHandler("blue_ocean_platform.log"),
     ],
 )
 logger = logging.getLogger(__name__)
@@ -96,7 +96,7 @@ def start_dashboard(port: str = None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Qoveliqo Ads Automation System")
+    parser = argparse.ArgumentParser(description="Blue Ocean Platform")
     parser.add_argument(
         "--scheduler-only",
         action="store_true",
@@ -110,7 +110,7 @@ def main():
     args = parser.parse_args()
 
     logger.info("=" * 60)
-    logger.info("  Qoveliqo Ads - AI Product Research & Ads Automation")
+    logger.info("  Blue Ocean Platform - Research, Cloning & Ads Automation")
     logger.info("=" * 60)
 
     scheduler = None

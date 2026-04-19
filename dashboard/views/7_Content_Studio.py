@@ -11,6 +11,7 @@ Features:
 
 import json
 import sys
+import importlib
 from pathlib import Path
 from datetime import datetime
 
@@ -19,6 +20,12 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 import streamlit as st
 import logging
+
+# Force-reload so code changes are picked up without restarting Streamlit
+import src.core.config as _config_mod
+importlib.reload(_config_mod)
+import src.shopify.listing_manager as _shopify_mod
+importlib.reload(_shopify_mod)
 
 from src.content.content_studio import (
     ContentStudioService,
@@ -573,23 +580,14 @@ def render_preview(service, product_id, product):
     st.subheader("PDP Preview")
     st.caption("This is how the product description will appear on Shopify (approximate — fonts and colors come from your theme)")
 
-    # "Preview on Shopify" buttons — admin + storefront
+    # "Preview on Shopify" buttons — smart links based on status
     shopify_id = product.shopify_product_id
     if shopify_id:
         from src.core.config import SHOPIFY_SHOP_URL
         admin_url = f"https://{SHOPIFY_SHOP_URL}/admin/products/{shopify_id}"
-        storefront_url = product.shopify_product_url or ""
-
-        col_a, col_b, col_c = st.columns([2, 2, 4])
-        with col_a:
-            st.link_button("Open in Shopify Admin", admin_url, use_container_width=True)
-        with col_b:
-            if storefront_url:
-                st.link_button("View Storefront Page", storefront_url, use_container_width=True)
-        st.caption(
-            "**Tip:** In Shopify Admin, click **'View on your online store'** to see the full "
-            "preview — this works even for draft/unpublished products."
-        )
+        fallback_url = product.shopify_product_url or ""
+        product_info = _fetch_shopify_product_info(shopify_id)
+        _render_shopify_links(shopify_id, product_info, admin_url, fallback_url, key_suffix="preview")
     else:
         st.caption("No Shopify listing yet — create a listing first to preview on the actual store.")
 
@@ -670,6 +668,9 @@ def render_push(service, product_id, product):
     st.divider()
     st.markdown("### Step 2: Publish or unpublish")
 
+    # Show current Shopify status + get product info for smart links
+    product_info = _render_shopify_status_badge(shopify_id)
+
     if readiness["ready"]:
         st.success(
             "Both text and images are approved — this product is **ready to publish**."
@@ -699,8 +700,9 @@ def render_push(service, product_id, product):
             with st.spinner("Publishing..."):
                 success = _set_shopify_status(shopify_id, "active")
                 if success:
-                    st.success("Product is now **live** on your store!")
+                    st.toast("Product is now **live** on your store!")
                     st.balloons()
+                    st.rerun()
                 else:
                     st.error("Failed to publish. Check logs.")
     with col_unpub:
@@ -713,9 +715,15 @@ def render_push(service, product_id, product):
             with st.spinner("Unpublishing..."):
                 success = _set_shopify_status(shopify_id, "draft")
                 if success:
-                    st.success("Product is now a **draft** — not visible to customers.")
+                    st.toast("Product is now a **draft** — not visible to customers.")
+                    st.rerun()
                 else:
                     st.error("Failed to unpublish. Check logs.")
+
+    # ── Shopify links (smart: based on product status) ────────
+    from src.core.config import SHOPIFY_SHOP_URL
+    admin_url = f"https://{SHOPIFY_SHOP_URL}/admin/products/{shopify_id}"
+    _render_shopify_links(shopify_id, product_info, admin_url, shopify_url or "", key_suffix="cs")
 
 
 def _set_shopify_status(shopify_product_id: str, status: str) -> bool:
@@ -727,6 +735,68 @@ def _set_shopify_status(shopify_product_id: str, status: str) -> bool:
     except Exception as e:
         logger.error("Failed to set Shopify status: %s", e)
         return False
+
+
+def _fetch_shopify_product_info(shopify_id: str) -> dict:
+    """Fetch product status, preview URL, and storefront URL from Shopify."""
+    try:
+        from src.shopify.listing_manager import ShopifyListingManager
+        manager = ShopifyListingManager()
+        info = manager.get_product_info(shopify_id)
+        return info or {"status": None, "preview_url": "", "storefront_url": "", "error": "No data returned"}
+    except Exception as e:
+        return {"status": None, "preview_url": "", "storefront_url": "", "error": str(e)}
+
+
+def _render_shopify_status_badge(shopify_id: str) -> dict:
+    """Fetch and display the current Shopify product status. Returns product info dict."""
+    info = _fetch_shopify_product_info(shopify_id)
+    status = info.get("status")
+
+    if status is None:
+        error = info.get("error", "")
+        msg = f"**Current Shopify status:** Unknown (could not fetch for ID: {shopify_id})"
+        if error:
+            msg += f"\n\n`{error}`"
+        st.warning(msg)
+    elif status == "active":
+        st.success("Current Shopify status: **Active** — Live on store")
+    elif status == "draft":
+        st.info("Current Shopify status: **Draft** — Not visible to customers")
+    elif status == "archived":
+        st.error("Current Shopify status: **Archived** — Hidden from admin and store")
+    else:
+        st.info(f"Current Shopify status: **{status.title()}**")
+
+    return info
+
+
+def _render_shopify_links(shopify_id: str, product_info: dict, admin_url: str, fallback_storefront_url: str = "", key_suffix: str = ""):
+    """Render smart Shopify links based on product status."""
+    status = product_info.get("status", "")
+    preview_url = product_info.get("preview_url", "")
+    storefront_url = product_info.get("storefront_url", "") or fallback_storefront_url
+
+    link_col1, link_col2, link_col3 = st.columns(3)
+
+    with link_col1:
+        st.link_button("Open in Shopify Admin", admin_url, use_container_width=True)
+
+    with link_col2:
+        if status == "active" and storefront_url:
+            st.link_button("View Storefront Page", storefront_url, use_container_width=True)
+        else:
+            st.button("View Storefront Page", disabled=True, use_container_width=True,
+                       help="Only available when the product is published (active).",
+                       key=f"sf_disabled_{key_suffix}")
+
+    with link_col3:
+        if preview_url and status in ("draft", "active"):
+            st.link_button("Preview Draft", preview_url, use_container_width=True)
+        else:
+            st.button("Preview Draft", disabled=True, use_container_width=True,
+                       help="Only available for draft or active products.",
+                       key=f"pv_disabled_{key_suffix}")
 
 
 main()

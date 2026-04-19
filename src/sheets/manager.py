@@ -14,9 +14,18 @@ Sheet structure:
 from __future__ import annotations
 
 import logging
+import time
 from typing import Optional
 
 import gspread
+from gspread.exceptions import APIError as GspreadAPIError
+
+# In-memory read cache to avoid 429 (quota exceeded) from repeated Sheet reads.
+# TTL in seconds; invalidated on any write to that tab.
+_SHEETS_READ_CACHE: dict[str, tuple[float, list[dict]]] = {}
+# Stale cache: keep last successful read so we can return it on 429 (quota exceeded).
+_SHEETS_STALE_CACHE: dict[str, list[dict]] = {}
+SHEETS_CACHE_TTL_SECONDS = 55  # Just under 1 minute; stay under read/minute quota
 
 from src.core.config import GOOGLE_SHEETS_CREDENTIALS_PATH, GOOGLE_SHEETS_SPREADSHEET_ID, get_service_account_credentials
 from src.core.interfaces import DataStore
@@ -51,7 +60,8 @@ KEYWORD_HEADERS = [
     "avg_competitor_price", "median_competitor_price", "estimated_selling_price",
     "google_shopping_url", "competitor_pdp_url",
     "aliexpress_url", "aliexpress_price", "aliexpress_rating",
-    "aliexpress_orders", "aliexpress_image_urls", "created_at", "notes"
+    "aliexpress_orders", "aliexpress_image_urls", "aliexpress_top3_json",
+    "created_at", "notes"
 ]
 
 PRODUCT_HEADERS = [
@@ -60,7 +70,7 @@ PRODUCT_HEADERS = [
     "competitor_count", "differentiation_score", "competition_type",
     "google_shopping_url", "competitor_pdp_url",
     "aliexpress_url", "aliexpress_price", "aliexpress_rating",
-    "aliexpress_orders", "aliexpress_image_urls",
+    "aliexpress_orders", "aliexpress_image_urls", "aliexpress_top3_json",
     "selling_price", "landed_cost",
     "gross_margin", "gross_margin_pct", "transaction_fees",
     "net_margin", "net_margin_pct", "break_even_roas", "target_roas",
@@ -103,31 +113,59 @@ class GoogleSheetsStore(DataStore):
         self._spreadsheet: Optional[gspread.Spreadsheet] = None
 
     def _connect(self):
-        """Establish connection to Google Sheets."""
+        """Establish connection to Google Sheets. Retries once on 429 (quota exceeded)."""
         if self._client is not None:
             return
 
-        try:
-            logger.info("Connecting to Google Sheets...")
-            logger.info("Spreadsheet ID: '%s'", GOOGLE_SHEETS_SPREADSHEET_ID)
+        last_error = None
+        for attempt in range(2):
+            try:
+                if attempt > 0:
+                    wait_sec = 30
+                    logger.warning("Sheets 429 (quota); waiting %ds before retry...", wait_sec)
+                    time.sleep(wait_sec)
+                logger.info("Connecting to Google Sheets...")
+                logger.info("Spreadsheet ID: '%s'", GOOGLE_SHEETS_SPREADSHEET_ID)
 
-            creds = get_service_account_credentials(scopes=SCOPES)
-            self._client = gspread.authorize(creds)
-            logger.info("Authorized successfully, opening spreadsheet...")
-            self._spreadsheet = self._client.open_by_key(GOOGLE_SHEETS_SPREADSHEET_ID.strip())
-            logger.info("Connected to Google Sheets: %s", self._spreadsheet.title)
-        except FileNotFoundError:
-            logger.error("Service account JSON not found at: %s", GOOGLE_SHEETS_CREDENTIALS_PATH)
-            raise
-        except Exception as e:
-            logger.error("Failed to connect to Google Sheets: %s (type: %s)", e, type(e).__name__)
-            raise
+                creds = get_service_account_credentials(scopes=SCOPES)
+                self._client = gspread.authorize(creds)
+                logger.info("Authorized successfully, opening spreadsheet...")
+                self._spreadsheet = self._client.open_by_key(GOOGLE_SHEETS_SPREADSHEET_ID.strip())
+                logger.info("Connected to Google Sheets: %s", self._spreadsheet.title)
+                return
+            except FileNotFoundError:
+                logger.error("Service account JSON not found at: %s", GOOGLE_SHEETS_CREDENTIALS_PATH)
+                raise
+            except GspreadAPIError as e:
+                last_error = e
+                if getattr(e, "response", None) and getattr(e.response, "status_code", None) == 429:
+                    if attempt == 0:
+                        continue
+                raise
+            except Exception as e:
+                logger.error("Failed to connect to Google Sheets: %s (type: %s)", e, type(e).__name__)
+                raise
+        if last_error is not None:
+            raise last_error
 
     def _get_or_create_worksheet(self, tab_name: str, headers: list[str]) -> gspread.Worksheet:
-        """Get an existing worksheet or create it with headers."""
+        """Get an existing worksheet or create it with headers.
+        Also adds any missing columns to existing sheets (schema migration)."""
         self._connect()
         try:
             ws = self._spreadsheet.worksheet(tab_name)
+            # Check for missing columns and add them
+            try:
+                existing_headers = ws.row_values(1)
+                missing = [h for h in headers if h not in existing_headers]
+                if missing:
+                    # Add each missing column at the end
+                    start_col = len(existing_headers) + 1
+                    for i, col_name in enumerate(missing):
+                        ws.update_cell(1, start_col + i, col_name)
+                    logger.info("Added %d missing columns to %s: %s", len(missing), tab_name, missing)
+            except Exception as e:
+                logger.warning("Could not check/add missing columns for %s: %s", tab_name, e)
         except gspread.WorksheetNotFound:
             ws = self._spreadsheet.add_worksheet(title=tab_name, rows=1000, cols=len(headers))
             ws.update("A1", [headers])
@@ -135,12 +173,35 @@ class GoogleSheetsStore(DataStore):
             logger.info("Created new worksheet: %s", tab_name)
         return ws
 
+    def _invalidate_cache(self, tab_name: str) -> None:
+        """Clear cached reads for a tab so the next read is fresh (used after writes)."""
+        global _SHEETS_READ_CACHE
+        _SHEETS_READ_CACHE.pop(tab_name, None)
+
     def _get_all_records(self, tab_name: str, headers: list[str]) -> list[dict]:
-        """Get all records from a tab as list of dicts."""
-        ws = self._get_or_create_worksheet(tab_name, headers)
+        """Get all records from a tab as list of dicts. Uses a short-lived cache to reduce API reads."""
+        global _SHEETS_READ_CACHE, _SHEETS_STALE_CACHE
+        now = time.time()
+        entry = _SHEETS_READ_CACHE.get(tab_name)
+        if entry is not None:
+            expiry, records = entry
+            if now < expiry:
+                return records
+            _SHEETS_READ_CACHE.pop(tab_name, None)
         try:
+            ws = self._get_or_create_worksheet(tab_name, headers)
             records = ws.get_all_records()
+            _SHEETS_READ_CACHE[tab_name] = (now + SHEETS_CACHE_TTL_SECONDS, records)
+            _SHEETS_STALE_CACHE[tab_name] = records
             return records
+        except GspreadAPIError as e:
+            if e.response is not None and e.response.status_code == 429:
+                stale = _SHEETS_STALE_CACHE.get(tab_name)
+                if stale is not None:
+                    logger.warning("Sheets API 429 (quota exceeded); returning cached data for %s", tab_name)
+                    return stale
+            logger.error("Error reading %s: %s", tab_name, e)
+            raise
         except Exception as e:
             logger.error("Error reading %s: %s", tab_name, e)
             return []
@@ -158,6 +219,7 @@ class GoogleSheetsStore(DataStore):
         ws = self._get_or_create_worksheet(tab_name, headers)
         row = [str(data.get(h, "")) for h in headers]
         ws.append_row(row, value_input_option="USER_ENTERED")
+        self._invalidate_cache(tab_name)
 
     def _update_row(self, tab_name: str, headers: list[str], id_field: str, id_value: str, updates: dict):
         """Update specific fields in a row."""
@@ -170,7 +232,10 @@ class GoogleSheetsStore(DataStore):
         for field_name, value in updates.items():
             if field_name in headers:
                 col_idx = headers.index(field_name) + 1
+                if value is None:
+                    value = ""
                 ws.update_cell(row_idx, col_idx, str(value))
+        self._invalidate_cache(tab_name)
 
     # --- Keywords ---
 
@@ -487,6 +552,12 @@ class GoogleSheetsStore(DataStore):
             return s
 
 
+_singleton_store: Optional[GoogleSheetsStore] = None
+
+
 def get_data_store() -> DataStore:
-    """Factory function to get the data store instance."""
-    return GoogleSheetsStore()
+    """Return the singleton data store so we reuse one connection and avoid 429 quota errors."""
+    global _singleton_store
+    if _singleton_store is None:
+        _singleton_store = GoogleSheetsStore()
+    return _singleton_store

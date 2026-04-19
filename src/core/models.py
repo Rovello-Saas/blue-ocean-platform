@@ -1,5 +1,5 @@
 """
-Data models for the Qoveliqo Ads system.
+Data models for the Blue Ocean Platform.
 All models use dataclasses for clean serialization and SaaS-ready architecture.
 """
 
@@ -106,6 +106,9 @@ class KeywordResearch:
     aliexpress_rating: float = 0.0
     aliexpress_orders: int = 0
     aliexpress_image_urls: str = ""  # comma-separated
+    # Top-3 AliExpress listings stored as JSON string
+    # Each is {"title","url","price","rating","orders","image_url","tag"}
+    aliexpress_top3_json: str = ""
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     notes: str = ""
 
@@ -144,6 +147,7 @@ class Product:
     aliexpress_rating: float = 0.0
     aliexpress_orders: int = 0
     aliexpress_image_urls: str = ""  # comma-separated
+    aliexpress_top3_json: str = ""   # JSON string with top 3 listings
 
     # Pricing
     selling_price: float = 0.0
@@ -295,6 +299,8 @@ class ImageGeneratorType(str, Enum):
     OPENAI_GPT_IMAGE = "gpt-image-1"
     GOOGLE_IMAGEN_4 = "google-imagen-4"
     GOOGLE_IMAGEN_4_FAST = "google-imagen-4-fast"
+    NANO_BANANA = "nano-banana"
+    NANO_BANANA_PRO = "nano-banana-pro"
     FAL_FLUX_PRO = "fal-flux-pro"
     FAL_FLUX_DEV = "fal-flux-dev"
     FAL_FLUX_SCHNELL = "fal-flux-schnell"
