@@ -16,6 +16,7 @@ Minimal side effects / costs:
   - Google Sheets: one worksheet read
   - AliExpress: 3 read-only calls (category/feed/feed.get)
   - OpenAI: one completion of ~10 tokens (~$0.00003)
+  - Anthropic: one claude-haiku-4-5 completion of ~16 tokens (~$0.00002)
   - Gemini: one generation of ~10 tokens (free tier)
   - SerpAPI: one search (~$0.01 or free-tier credit)
   - Shopify: one shop.json read (free)
@@ -40,7 +41,11 @@ from dotenv import load_dotenv
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-load_dotenv(REPO_ROOT / ".env")
+# override=True so .env wins over any empty/stale env vars inherited from
+# the parent shell (some agent/IDE environments pre-scrub credential names
+# by setting them to empty strings, which blocks the default no-override
+# load_dotenv behaviour).
+load_dotenv(REPO_ROOT / ".env", override=True)
 
 
 # -----------------------------------------------------------------------------
@@ -111,6 +116,41 @@ def check_openai() -> tuple[str, list[str]]:
     )
     text = (resp.choices[0].message.content or "").strip().lower()
     return f"completion returned '{text}'", []
+
+
+def check_anthropic() -> tuple[str, list[str]]:
+    """Minimal completion against the Anthropic API.
+
+    The Python platform doesn't call Anthropic directly — the Node page-cloner
+    does — but we verify the key here so the whole BOC stack is covered by
+    one command. Cost: ~15 input tokens + ~5 output tokens of haiku = tiny.
+    """
+    _require_env("ANTHROPIC_API_KEY")
+    import urllib.request
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        method="POST",
+        headers={
+            "x-api-key": os.environ["ANTHROPIC_API_KEY"],
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+        data=json.dumps({
+            "model": "claude-haiku-4-5",
+            "max_tokens": 16,
+            "messages": [{"role": "user", "content": "Reply with just: ok"}],
+        }).encode("utf-8"),
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        body = json.loads(resp.read())
+    if body.get("type") != "message":
+        raise RuntimeError(f"unexpected response shape: {body}")
+    text = (body["content"][0].get("text") or "").strip().lower()
+    usage = body.get("usage", {})
+    return f"{body['model']} returned '{text}'", [
+        f"input_tokens: {usage.get('input_tokens')}",
+        f"output_tokens: {usage.get('output_tokens')}",
+    ]
 
 
 def check_google_ads() -> tuple[str, list[str]]:
@@ -336,6 +376,7 @@ def check_google_merchant_center() -> tuple[str, list[str]]:
 
 CHECKS: dict[str, Callable[[], tuple[str, list[str]]]] = {
     "openai":        check_openai,
+    "anthropic":     check_anthropic,
     "google_ads":    check_google_ads,
     "google_sheets": check_google_sheets,
     "shopify":       check_shopify,

@@ -3,7 +3,7 @@
 Reference record of the XCVLS/Goveliqo → Blue Ocean Commerce B.V. API
 migration. Keep this file up to date whenever credentials move entities.
 
-## Final state (2026-04-20)
+## Final state (2026-04-20, migration complete)
 
 | API | Entity | Status |
 |---|---|---|
@@ -14,11 +14,15 @@ migration. Keep this file up to date whenever credentials move entities.
 | Gemini | Regenerated inside BOC project | ✅ live |
 | Shopify Admin | Movanella (`qnkd5e-3r.myshopify.com`) | ✅ live |
 | AliExpress DS | Open Platform app `532468`, Portals `blueocean` tracking ID | ✅ Online |
-| OpenAI | XCVLS-era key | ⚠️ works, fresh BOC signup pending |
-| SerpAPI | XCVLS-era key | ⚠️ works, fresh BOC signup pending |
-| Fal.ai | Rovello-billed | ⚠️ works, billing migration pending |
+| OpenAI | BOC org (`info@rovelloshop.com`), service-account key | ✅ live |
+| Anthropic | BOC org (`info@rovelloshop.com`) | ✅ live |
+| SerpAPI | BOC account (`info@rovelloshop.com`), 250 free searches/mo | ✅ live |
+| Fal.ai | Billing address BOC; account display name still "Rovello ." | ⚠️ rename requested via support |
 
-Run `python scripts/smoke_test.py` to verify end-to-end.
+Run `python scripts/smoke_test.py` to verify end-to-end — all 10 checks
+must pass. The Anthropic key lives in both the platform `.env` (for the
+smoke test) and `page-cloner/.env` (the Node service that actually calls
+the API); keep the two in sync on rotation.
 
 ## Lessons learned — do not re-debug these
 
@@ -103,18 +107,36 @@ Goveliqo app — they're only consumed by `scripts/shopify_oauth.py` during
 install, not by runtime API calls. Runtime uses `SHOPIFY_ACCESS_TOKEN`. Leave
 in place unless we need to re-install the app against the Movanella store.
 
-## Outstanding cleanup
+## Outstanding
 
-These are low-priority, manual-only tasks:
+All migration-blocking work is done. Remaining items are passive (waiting
+on a third party) or low-priority hygiene:
 
-1. **Trash old Goveliqo Sheets** (`1pCut1UA5FXYEYz68Xx0VL0z49XgUhFvmDgINv2KrXpw`,
-   `1GyeKaZLVQJtPSQfzt4TQpxZYmwP30Fp-eMfj29_I0Y0`) — requires signing into
-   Goveliqo Workspace admin.
-2. **Delete orphan GCP project** `gen-lang-client-0161867213` — was the
-   auto-created home for the pre-migration Gemini key.
-3. **Fresh OpenAI / Anthropic / SerpAPI signups** under BOC email — currently
-   using XCVLS-era personal keys that still work but aren't on the BOC books.
-4. **Migrate fal.ai billing** from Rovello to BOC entity.
+1. **fal.ai account rename** — support email sent 2026-04-20 asking to
+   rename "Rovello ." → "Blue Ocean Commerce B.V." on the Personal
+   account. Billing address and payment entity are already BOC; only the
+   display name on invoices differs. Awaiting reply from `support@fal.ai`.
+2. **Add Dutch VAT ID to billing pages** — OpenAI / Anthropic / SerpAPI /
+   fal.ai all have empty Tax ID fields. Drop in the BOC NL VAT number on
+   each provider's billing page whenever convenient; nothing currently
+   breaks without it.
+3. **Revoke superseded keys** — after a week of stable operation on the
+   new keys, revoke these in each provider's dashboard:
+   - OpenAI: `sk-proj-0IU3...r4A` (originally "Qoveliqo Cursor", now
+     renamed to "Blue Ocean Platform") and `sk-...ebUA` ("T-Lab") if
+     unused.
+   - Anthropic: `sk-ant-api03-6K4qiIXq...QAA` (Qoveliqo-era personal key).
+   - SerpAPI: `3d389bbc...aaaa5d` (XCVLS-era key).
+
+### Done during this migration (historical)
+
+- ✅ Orphan GCP project `gen-lang-client-0161867213` — shut down
+  2026-04-20, scheduled to be fully deleted 2026-05-20.
+- ✅ Old Goveliqo-owned sheets (`1pCut1UA5FXYEYz68Xx0VL0z49XgUhFvmDgINv2KrXpw`,
+  `1GyeKaZLVQJtPSQfzt4TQpxZYmwP30Fp-eMfj29_I0Y0`) — trashed via the
+  Goveliqo Workspace admin.
+- ✅ Fresh BOC signups: OpenAI (service-account key), Anthropic, SerpAPI
+  (250/mo free tier). All smoke-tested live on 2026-04-20.
 
 ## Re-running the migration verification
 
