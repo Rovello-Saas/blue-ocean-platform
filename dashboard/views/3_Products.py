@@ -796,22 +796,118 @@ def _render_actions(store, config, product):
                     logger.exception("update_keyword(ali fields) failed: %s", exc)
                     results["Keywords"] = f"failed: {exc}"
 
-            # Sync to Agent Tasks — either updating an existing row (most
-            # common: product was already sent to agent) or appending a
-            # fresh one. `update_agent_task` is a no-op when the product
-            # isn't on the agent sheet, so we call it unconditionally and
-            # then fall through to sync_product_to_agent_tasks (which
-            # dedups by product_id) to guarantee a row exists.
+            # Sync to Agent Tasks. Two cases:
+            #   (a) product already on the agent sheet → update its row.
+            #   (b) product NOT on the agent sheet yet → append via
+            #       sync_product_to_agent_tasks (which dedups internally).
+            # `update_agent_task` now *raises LookupError* if the row is
+            # missing — previously it silently no-op'd, which meant a
+            # user editing a product that wasn't agent-synced would see a
+            # green "saved" banner while the agent sheet never got the
+            # value. Catch LookupError explicitly and fall through to the
+            # append path; any other exception is a real failure.
             try:
-                store.update_agent_task(product.product_id, {
-                    "aliexpress_url": product.aliexpress_url,
-                    "aliexpress_price": product.aliexpress_price,
-                })
+                try:
+                    store.update_agent_task(product.product_id, {
+                        "aliexpress_url": product.aliexpress_url,
+                        "aliexpress_price": product.aliexpress_price,
+                    })
+                except LookupError:
+                    logger.info(
+                        "product_id=%s not on Agent Tasks yet; appending via sync",
+                        product.product_id,
+                    )
                 store.sync_product_to_agent_tasks(product)
-                results["Agent Tasks"] = "ok"
+
+                # Read-back verify — even when the write API returns 200
+                # the value can fail to land (protected ranges, filter
+                # views, wrong spreadsheet handle). Fetch the row we just
+                # wrote and compare the posted price against what the
+                # sheet now shows. If they mismatch, surface it so the
+                # user sees the real state instead of a false-green
+                # "saved" banner.
+                try:
+                    from src.sheets.manager import (
+                        TAB_AGENT_TASKS, AGENT_TASK_HEADERS,
+                    )
+                    agent_ws = store._get_or_create_worksheet(
+                        TAB_AGENT_TASKS, AGENT_TASK_HEADERS,
+                    )
+                    idx = store._find_row_index(
+                        agent_ws, "product_id", product.product_id,
+                    )
+                    if idx is None:
+                        results["Agent Tasks"] = (
+                            "failed: row not found after write "
+                            "(append_row should have added it — "
+                            "check sheet permissions + the "
+                            "GOOGLE_SHEETS_AGENT_SPREADSHEET_ID secret)"
+                        )
+                    else:
+                        live_hdr = agent_ws.row_values(1)
+                        live_row = agent_ws.row_values(idx)
+                        live = dict(zip(
+                            live_hdr,
+                            live_row + [""] * (len(live_hdr) - len(live_row)),
+                        ))
+                        # Compare as floats so "15" == "15.0" == 15
+                        def _num(v):
+                            try:
+                                return float(str(v).strip())
+                            except Exception:
+                                return None
+                        wrote = _num(product.aliexpress_price)
+                        saw = _num(live.get("aliexpress_price"))
+                        if wrote is not None and saw != wrote:
+                            results["Agent Tasks"] = (
+                                f"failed: wrote aliexpress_price={wrote} "
+                                f"but sheet shows {saw!r} on row {idx} of "
+                                f"'{agent_ws.spreadsheet.title}' → "
+                                f"'{agent_ws.title}'. Write API returned "
+                                f"OK but value didn't land. Likely cause: "
+                                f"protected range, filter view hiding the "
+                                f"row, or wrong spreadsheet handle."
+                            )
+                        else:
+                            results["Agent Tasks"] = "ok"
+                except Exception as exc:
+                    logger.exception("agent tasks read-back verify failed: %s", exc)
+                    results["Agent Tasks"] = f"ok (verify skipped: {exc})"
             except Exception as exc:
                 logger.exception("agent tasks sync failed: %s", exc)
                 results["Agent Tasks"] = f"failed: {exc}"
+
+            # Persistent trace so we can verify execution after the fact
+            # even when Streamlit's log handlers swallow emits. Append-only
+            # single-line JSON; delete freely. Also records which
+            # spreadsheet we wrote to, so a mis-configured
+            # GOOGLE_SHEETS_AGENT_SPREADSHEET_ID shows up in the trace.
+            try:
+                import json as _json
+                from datetime import datetime as _dt
+                _agent_target = "?"
+                try:
+                    from src.sheets.manager import (
+                        TAB_AGENT_TASKS, AGENT_TASK_HEADERS,
+                    )
+                    _aws = store._get_or_create_worksheet(
+                        TAB_AGENT_TASKS, AGENT_TASK_HEADERS,
+                    )
+                    _agent_target = _aws.spreadsheet.title
+                except Exception:
+                    pass
+                with open("/tmp/bop_save_trace.log", "a") as _f:
+                    _f.write(_json.dumps({
+                        "ts": _dt.utcnow().isoformat(),
+                        "product_id": product.product_id,
+                        "keyword": product.keyword,
+                        "aliexpress_price": product.aliexpress_price,
+                        "aliexpress_url": product.aliexpress_url,
+                        "agent_target_sheet": _agent_target,
+                        "results": results,
+                    }) + "\n")
+            except Exception:
+                pass
 
             ok = [k for k, v in results.items() if v == "ok"]
             failed = [(k, v) for k, v in results.items() if v != "ok"]

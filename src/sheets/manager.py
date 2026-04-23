@@ -424,10 +424,17 @@ class GoogleSheetsStore(DataStore):
         )
         self._invalidate_cache(tab_name)
 
-    def _update_row(self, tab_name: str, headers: list[str], id_field: str, id_value: str, updates: dict):
+    def _update_row(self, tab_name: str, headers: list[str], id_field: str, id_value: str, updates: dict) -> bool:
         """Update specific fields in a row using a single `batch_update` call
         instead of one `update_cell` per field (which used to spend 10+ API
         calls per product update and was the main 429 trigger).
+
+        Returns True when a write landed (or would have landed — batch was
+        empty because every updated field was filtered by skip-rules).
+        Returns False when the row couldn't be located by id. Callers that
+        need strict guarantees (e.g. the dashboard Save handler writing to
+        Agent Tasks) should check the return value and raise — the silent
+        no-op used to surface as a false "saved" banner.
         """
         ws = self._get_or_create_worksheet(tab_name, headers)
         row_idx = _retry_on_429(
@@ -436,7 +443,7 @@ class GoogleSheetsStore(DataStore):
         )
         if row_idx is None:
             logger.warning("Row not found for %s=%s in %s", id_field, id_value, tab_name)
-            return
+            return False
 
         # Build a single batch_update payload covering all changed cells.
         # Column indices are keyed off the *live* sheet so we never try to
@@ -462,12 +469,13 @@ class GoogleSheetsStore(DataStore):
                 len(skipped), tab_name, skipped,
             )
         if not batch:
-            return
+            return True
         _retry_on_429(
             lambda: ws.batch_update(batch, value_input_option="USER_ENTERED"),
             op=f"batch_update({tab_name}, {len(batch)} cells)",
         )
         self._invalidate_cache(tab_name)
+        return True
 
     # --- Keywords ---
 
@@ -712,14 +720,24 @@ class GoogleSheetsStore(DataStore):
         Used when the dashboard-side user edits fields (AliExpress URL /
         price) on a product that's already queued for the agent — we want
         the agent's sheet to reflect the latest values so they don't waste
-        time sourcing from a stale link. No-op if the product_id isn't on
-        the Agent Tasks tab.
+        time sourcing from a stale link.
+
+        Raises `LookupError` if the product_id isn't on the Agent Tasks
+        tab. The previous silent-no-op behaviour let a "row not found"
+        condition masquerade as a successful save — the dashboard's
+        "Saved — all updated" banner lied and the agent's sheet stayed
+        stale. Callers that genuinely want upsert semantics should catch
+        LookupError + call `sync_product_to_agent_tasks` to append.
         """
-        self._update_row(
+        wrote = self._update_row(
             TAB_AGENT_TASKS, AGENT_TASK_HEADERS,
             "product_id", product_id,
             updates,
         )
+        if not wrote:
+            raise LookupError(
+                f"Agent Tasks row not found for product_id={product_id!r}"
+            )
 
     # --- Action Log ---
 
