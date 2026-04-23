@@ -706,6 +706,21 @@ class GoogleSheetsStore(DataStore):
             {"status": "processed"}
         )
 
+    def update_agent_task(self, product_id: str, updates: dict) -> None:
+        """Update arbitrary fields on an existing Agent Tasks row.
+
+        Used when the dashboard-side user edits fields (AliExpress URL /
+        price) on a product that's already queued for the agent — we want
+        the agent's sheet to reflect the latest values so they don't waste
+        time sourcing from a stale link. No-op if the product_id isn't on
+        the Agent Tasks tab.
+        """
+        self._update_row(
+            TAB_AGENT_TASKS, AGENT_TASK_HEADERS,
+            "product_id", product_id,
+            updates,
+        )
+
     # --- Action Log ---
 
     def add_log(self, log: ActionLog) -> None:

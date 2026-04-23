@@ -43,6 +43,125 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Image helpers
+#   The Product schema doesn't carry the Google-Shopping thumbnail that
+#   SerpAPI captured (only the Keyword schema does). So for the drawer's
+#   "Images" section we have to harvest from multiple fields — and when
+#   the product itself has no images (common on manually-added rows), fall
+#   back to the source Keyword row via keyword_id.
+# ---------------------------------------------------------------------------
+
+def _collect_product_images(store, product) -> list[dict]:
+    """Return a de-duplicated list of image dicts for this product.
+
+    Each dict is ``{"url": str, "label": str}``. Order of preference:
+      1. Google-Shopping competitor thumbnail (via the source Keyword row)
+      2. AliExpress top-3 images (from product.aliexpress_top3_json)
+      3. Any remaining images in product.aliexpress_image_urls
+
+    We merge product-level and keyword-level sources because the research
+    pipeline sometimes lands images on the Keyword row but not the Product
+    (legacy manual-adds, or products created before a given image column
+    existed). Falling back to the keyword costs one sheet read but means
+    the drawer is never blank when there's *any* image anywhere.
+    """
+    import json
+    images: list[dict] = []
+    seen: set[str] = set()
+
+    def _add(url: str, label: str) -> None:
+        u = (url or "").strip()
+        if not u or u in seen:
+            return
+        seen.add(u)
+        images.append({"url": u, "label": label})
+
+    # Look up the source keyword once — cheap on cached read, and gives us
+    # the Google-Shopping thumbnail which isn't stored on Product.
+    kw = None
+    kw_id = getattr(product, "keyword_id", "")
+    if kw_id:
+        try:
+            for k in store.get_keywords():
+                if k.keyword_id == kw_id:
+                    kw = k
+                    break
+        except Exception:
+            kw = None
+
+    # 1. Google Shopping thumb — guaranteed present if research passed the
+    #    competition filter, which covers ~everything outside manual-adds.
+    if kw and getattr(kw, "competitor_thumbnail_url", ""):
+        _add(kw.competitor_thumbnail_url, "Google Shopping")
+
+    # 2. AliExpress top-3 — these are the richest source (they include
+    #    tagging like "Best Seller" / "Best Price"). Pull from product
+    #    first, then fall back to keyword.
+    for src in (product, kw):
+        if not src:
+            continue
+        raw = getattr(src, "aliexpress_top3_json", "") or ""
+        if not raw:
+            continue
+        try:
+            top3 = json.loads(raw)
+        except (ValueError, TypeError):
+            continue
+        for item in top3 or []:
+            url = item.get("image_url") or ""
+            tag = item.get("tag") or "AliExpress"
+            _add(url, tag)
+
+    # 3. Any remaining images in aliexpress_image_urls — typically the
+    #    first-match thumb when top3 wasn't populated (manual adds, or
+    #    older rows before top-3 was introduced).
+    for src in (product, kw):
+        if not src:
+            continue
+        raw = getattr(src, "aliexpress_image_urls", "") or ""
+        for u in raw.split(","):
+            _add(u.strip(), "AliExpress")
+
+    return images
+
+
+def _render_product_images(store, product) -> None:
+    """Render a thumbnail grid with per-image download buttons.
+
+    Uses ``st.download_button`` (not a plain markdown link) so the user
+    can one-click save to disk — crucial for uploading to AliExpress's
+    reverse-image search, which is the whole reason this section exists.
+    Fetches are best-effort: on any network error we fall through to an
+    "Open" link so the user still has a way out.
+    """
+    from dashboard.components.widgets import render_image_download
+
+    images = _collect_product_images(store, product)
+    if not images:
+        return
+
+    st.markdown("#### Product images")
+    st.caption(
+        "Tick **Prepare download** then click **Download** to save the "
+        "image — then drag-drop it onto AliExpress → camera icon for "
+        "reverse image search."
+    )
+
+    # 4 per row keeps the thumbs readable on laptop widths.
+    per_row = 4
+    for row_start in range(0, len(images), per_row):
+        row = images[row_start:row_start + per_row]
+        cols = st.columns(len(row))
+        for col, img in zip(cols, row):
+            with col:
+                try:
+                    st.image(img["url"], use_container_width=True, caption=img["label"])
+                except Exception:
+                    st.caption(f"({img['label']} — preview failed)")
+                render_image_download(img["url"], product.product_id, row_start + row.index(img))
+
+
+# ---------------------------------------------------------------------------
 # Stage buckets
 #   Four columns, mapping N lifecycle statuses each. Keep this in one place
 #   so the KPI strip, kanban, and archive all stay in sync.
@@ -466,6 +585,14 @@ def _render_drawer(store, config, product):
         if product.shopify_product_url:
             st.markdown(f"🛍️ [Shopify]({product.shopify_product_url})")
 
+    # --- Images ----------------------------------------------------------
+    # Promoted products often have their Google-Shopping thumb / AliExpress
+    # stills buried in the source Keyword row but not copied onto Product
+    # (schema gap). Harvest from both sources so the drawer always has
+    # something visual, and expose a download button per image so the user
+    # can drop them into AliExpress's camera/image-search for alternatives.
+    _render_product_images(store, product)
+
     # --- Performance ------------------------------------------------------
     if float(product.spend or 0) > 0:
         st.markdown("#### Performance")
@@ -589,18 +716,87 @@ def _render_actions(store, config, product):
                 value=float(product.landed_cost or 0),
                 step=1.0, key="act_new_landed",
             )
+
+        # AliExpress URL + price live next to the economics because they
+        # feed the same downstream math (landed cost starts from the
+        # AliExpress price, and the agent sheet needs the live URL). Users
+        # were previously editing aliexpress_price in the Research inbox
+        # and expecting the Product / Agent Tasks rows to update too —
+        # they didn't, because the sync only fired at Send-to-Agent time.
+        # Editing them here now writes to all three sheets (Products,
+        # Keywords, Agent Tasks) in one click.
+        a1, a2 = st.columns([3, 1])
+        with a1:
+            new_ali_url = st.text_input(
+                "AliExpress URL",
+                value=product.aliexpress_url or "",
+                key="act_new_ali_url",
+                placeholder="https://www.aliexpress.com/item/...",
+            )
+        with a2:
+            new_ali_price = st.number_input(
+                "AliExpress price (EUR)",
+                value=float(product.aliexpress_price or 0),
+                step=0.50,
+                min_value=0.0,
+                key="act_new_ali_price",
+            )
+
         if st.button("💰 Save & recalc", use_container_width=True, key="act_save_economics"):
             from src.economics.validator import EconomicValidator
+
+            # Overlay the edited values on the in-memory product so the
+            # validator recomputes against the new numbers before we
+            # persist.
             product.selling_price = new_selling
             product.landed_cost = new_landed
+            product.aliexpress_url = new_ali_url.strip()
+            product.aliexpress_price = float(new_ali_price or 0)
             validator = EconomicValidator(config)
             economics = validator.calculate_economics(product)
-            store.update_product(product.product_id, {
+
+            updates = {
                 "selling_price": new_selling,
                 "landed_cost": new_landed,
+                "aliexpress_url": product.aliexpress_url,
+                "aliexpress_price": product.aliexpress_price,
                 **economics,
-            })
-            st.success("Economics recalculated.")
+            }
+            store.update_product(product.product_id, updates)
+
+            # Push the same AliExpress fields back to the Keyword row so
+            # the Research inbox shows the current values if the user
+            # flips back to that page.
+            if getattr(product, "keyword_id", None):
+                try:
+                    store.update_keyword(product.keyword_id, {
+                        "aliexpress_url": product.aliexpress_url,
+                        "aliexpress_price": product.aliexpress_price,
+                    })
+                except Exception as exc:
+                    logger.warning(
+                        "update_keyword(ali fields) failed for %s: %s",
+                        product.keyword_id, exc,
+                    )
+
+            # Sync to Agent Tasks — either updating an existing row (most
+            # common: product was already sent to agent) or appending a
+            # fresh one. `update_agent_task` is a no-op when the product
+            # isn't on the agent sheet, so we call it unconditionally and
+            # then fall through to sync_product_to_agent_tasks (which
+            # dedups by product_id) to guarantee a row exists.
+            try:
+                store.update_agent_task(product.product_id, {
+                    "aliexpress_url": product.aliexpress_url,
+                    "aliexpress_price": product.aliexpress_price,
+                })
+                store.sync_product_to_agent_tasks(product)
+            except Exception as exc:
+                logger.warning(
+                    "agent tasks sync failed for %s: %s",
+                    product.product_id, exc,
+                )
+            st.success("Saved — product, keyword, and agent-tasks row updated.")
             st.rerun()
 
 

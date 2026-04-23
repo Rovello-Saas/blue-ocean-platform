@@ -687,9 +687,11 @@ def _render_detail_drawer(kw):
             top3 = []
 
     if top3:
+        from dashboard.components.widgets import render_image_download
+
         st.markdown("**Top 3 AliExpress matches**")
         cols = st.columns(len(top3))
-        for col, item in zip(cols, top3):
+        for idx, (col, item) in enumerate(zip(cols, top3)):
             with col:
                 tag = item.get("tag", "")
                 colour = {"Best Seller": "orange", "Best Price": "green", "Best Rated": "blue"}.get(tag, "gray")
@@ -715,6 +717,30 @@ def _render_detail_drawer(kw):
                         st.error(f"Est. margin {pct:.0f}%")
                 if item.get("url"):
                     st.markdown(f"[View on AliExpress]({item['url']})")
+                # One-click image export — the whole point of the Research
+                # drawer for most users is to find images they can drop
+                # into AliExpress camera-search for alternative suppliers.
+                if item.get("image_url"):
+                    render_image_download(
+                        item["image_url"],
+                        f"kw_{kw.keyword_id}",
+                        idx,
+                    )
+
+    # Google Shopping thumbnail + download (falls outside top-3 because
+    # the thumb comes from SerpAPI's competition stage, not AliExpress).
+    gs_thumb = (getattr(kw, "competitor_thumbnail_url", "") or "").strip()
+    if gs_thumb:
+        from dashboard.components.widgets import render_image_download
+
+        st.markdown("**Google Shopping thumbnail**")
+        tcol, _ = st.columns([1, 3])
+        with tcol:
+            try:
+                st.image(gs_thumb, width=140)
+            except Exception:
+                st.caption("(preview failed)")
+            render_image_download(gs_thumb, f"kw_{kw.keyword_id}", 99)
 
     # Links + notes --------------------------------------------------------
     st.markdown("**Links**")

@@ -10,6 +10,73 @@ from src.core.models import Product, ProductStatus
 
 
 # ---------------------------------------------------------------------------
+# Image download (shared between Research and Products pages)
+#
+# Users want to pull product images off the dashboard and upload them into
+# AliExpress's camera / reverse-image search to hunt for alternative
+# suppliers. Native browser "Save image as…" works but is a three-click
+# detour on every image; these helpers give us a one-click download button
+# backed by a lazy fetch so drawers with 10+ thumbs don't hammer the
+# upstream CDN on every Streamlit rerun.
+# ---------------------------------------------------------------------------
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def _fetch_image_bytes(url: str) -> tuple[bytes, str, str]:
+    """Fetch an image and return ``(bytes, filename, mime)``.
+
+    Cached for 1h so the same image re-rendered across reruns doesn't
+    re-download. Returns empty tuple on any network error — callers
+    fall back to an "Open in tab" link in that case.
+    """
+    import mimetypes
+    from urllib.parse import urlparse
+
+    import requests
+
+    try:
+        r = requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
+        r.raise_for_status()
+    except Exception:
+        return b"", "", ""
+    content = r.content
+    mime = r.headers.get("Content-Type", "").split(";")[0].strip()
+    if not mime:
+        mime = mimetypes.guess_type(urlparse(url).path)[0] or "image/jpeg"
+    ext = mimetypes.guess_extension(mime) or ".jpg"
+    parsed_name = urlparse(url).path.rsplit("/", 1)[-1] or "image"
+    base = parsed_name.split("?")[0].rsplit(".", 1)[0] or "image"
+    return content, f"{base}{ext}", mime
+
+
+def render_image_download(url: str, scope_key: str, idx: int) -> None:
+    """Gated download control for a single image URL.
+
+    The pattern is a "Prepare download" checkbox → reveals a native
+    ``st.download_button``. This keeps the fetch lazy: a drawer full of
+    thumbs doesn't make N HTTP requests on render. Callers pass a
+    ``scope_key`` unique to the container (e.g. product_id) so Streamlit
+    widget keys don't collide across multiple drawers open in the same
+    session.
+    """
+    prep_key = f"img_prep_{scope_key}_{idx}"
+    if st.checkbox("Prepare download", key=prep_key, value=False):
+        data, fname, mime = _fetch_image_bytes(url)
+        if data:
+            st.download_button(
+                label="💾 Download",
+                data=data,
+                file_name=fname,
+                mime=mime,
+                key=f"img_dl_{scope_key}_{idx}",
+                use_container_width=True,
+            )
+        else:
+            st.markdown(f"[🔗 Open in tab]({url})")
+    else:
+        st.markdown(f"[🔗 Open in tab]({url})")
+
+
+# ---------------------------------------------------------------------------
 # Pipeline funnel hero
 # ---------------------------------------------------------------------------
 
