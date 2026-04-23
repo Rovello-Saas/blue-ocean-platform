@@ -334,6 +334,17 @@ def main():
     # operator isn't wading through US drops.
     _render_drops_panel(store, country)
 
+    # ----- Background-run auto-refresh tick --------------------------------
+    # _render_discovery_status_panel() sets this flag when a Discovery run
+    # is in progress so the status card at the top updates every ~3s. We
+    # do the sleep+rerun HERE (at the bottom of the page) so that the
+    # inbox table, drops panel, and everything else has a chance to render
+    # first — otherwise the user loses their list while a run is active.
+    if st.session_state.pop("_discovery_refresh_tick", False):
+        import time
+        time.sleep(3)
+        st.rerun()
+
 
 # ---------------------------------------------------------------------------
 # Inbox table with inline decision actions
@@ -1072,13 +1083,13 @@ def _render_discovery_status_panel():
                     f"passed volume {last_stats.get('keywords_passed_volume', 0)}, "
                     f"added {last_stats.get('products_added_to_sourcing', 0)}"
                 )
-        # Auto-rerun every ~3 seconds so the progress card updates without
-        # the user clicking anything. time.sleep blocks this page render,
-        # but since the actual work runs in a background thread that doesn't
-        # affect the pipeline's throughput.
-        import time
-        time.sleep(3)
-        st.rerun()
+        # Auto-rerun is handled at the END of main() (after the inbox
+        # table renders) — not here. Doing sleep+rerun inline would abort
+        # the script and hide everything below the panel, which is why
+        # users saw the inbox disappear while a Discovery run was active.
+        # Flag it so main() knows to schedule a refresh tick after its
+        # other content is on screen.
+        st.session_state["_discovery_refresh_tick"] = True
         return
 
     # --- Finished: render final funnel + cost block --------------------
