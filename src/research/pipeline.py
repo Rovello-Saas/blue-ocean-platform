@@ -1417,9 +1417,10 @@ class ResearchPipeline:
 
         # If nothing landed in either lane, shout — this is the case the
         # user was hitting. A WARNING makes it stand out in tools like
-        # Streamlit's log viewer. Manual-review writes still count as
-        # "something landed" since they produce dashboard work.
-        if written == 0 and manual_wr == 0:
+        # Streamlit's log viewer. Inbox-only writes still count as
+        # "something landed" since they produce dashboard work (a row in
+        # the Research Inbox waiting for a human decision).
+        if written == 0 and inbox_only == 0:
             if gen == 0:
                 logger.warning(
                     "No keywords were generated at all. Check LLM config / API key."
