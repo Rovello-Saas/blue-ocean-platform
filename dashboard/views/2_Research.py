@@ -895,30 +895,36 @@ def _send_to_agent(store, config, keywords, keyword_ids):
 
         store.update_keyword(kid, {"status": "sent_to_sourcing"})
 
-        # Push the product onto the sourcing agent's work queue. Only matters
-        # for the SOURCING path — READY_TO_TEST means the user already
-        # sourced the AliExpress match so the agent has nothing to do.
+        # Push the product onto the sourcing agent's work queue. We sync on
+        # BOTH branches — previously the ali_filled → READY_TO_TEST branch
+        # skipped this on the theory that "the user already sourced, so the
+        # agent has nothing to do". But the button is literally called
+        # "Send to Agent": if the user clicks it, they want the product
+        # visible to the agent, full stop. The agent can quickly process
+        # rows that already have aliexpress_price filled (they just confirm
+        # landed_cost = aliexpress_price) — that's cheaper than explaining
+        # to the user why the button silently skipped half their picks.
+        #
         # Previously this sync only happened at the end of a Discovery run
         # (pipeline.py _finalize) and the nightly scheduler — which meant
         # clicking "Send to Agent" from the dashboard wrote the Product row
         # but never queued the task, leaving the agent's sheet empty until
         # the next full run. Doing it inline here closes that gap.
-        if not ali_filled:
-            try:
-                product_obj = (
-                    existing
-                    if existing
-                    else product  # the fresh Product built above
-                )
-                store.sync_product_to_agent_tasks(product_obj)
-            except Exception as sync_err:
-                # Agent Tasks sync is best-effort — the product is already
-                # in the Products tab, so the user can still find it. Log
-                # and continue so one sheet hiccup doesn't block the batch.
-                logger.error(
-                    "sync_product_to_agent_tasks failed for %s: %s",
-                    product_id, sync_err,
-                )
+        try:
+            product_obj = (
+                existing
+                if existing
+                else product  # the fresh Product built above
+            )
+            store.sync_product_to_agent_tasks(product_obj)
+        except Exception as sync_err:
+            # Agent Tasks sync is best-effort — the product is already
+            # in the Products tab, so the user can still find it. Log
+            # and continue so one sheet hiccup doesn't block the batch.
+            logger.error(
+                "sync_product_to_agent_tasks failed for %s: %s",
+                product_id, sync_err,
+            )
 
         if ali_filled:
             ready += 1
