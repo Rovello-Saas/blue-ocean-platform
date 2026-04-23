@@ -147,15 +147,21 @@ def _render_product_images(store, product) -> None:
         "reverse image search."
     )
 
-    # 4 per row keeps the thumbs readable on laptop widths.
+    # Fixed column count (not len(row)) so a single-image row doesn't
+    # stretch the thumb to full drawer width — empty trailing columns
+    # just stay blank. 4-wide keeps each thumb ~180px on laptop, still
+    # readable but not overwhelming.
     per_row = 4
     for row_start in range(0, len(images), per_row):
         row = images[row_start:row_start + per_row]
-        cols = st.columns(len(row))
+        cols = st.columns(per_row)
         for col, img in zip(cols, row):
             with col:
                 try:
-                    st.image(img["url"], use_container_width=True, caption=img["label"])
+                    # Fixed pixel width instead of container-width to stop
+                    # the image from ballooning to 100% of the drawer when
+                    # there's only one thumb to show.
+                    st.image(img["url"], width=180, caption=img["label"])
                 except Exception:
                     st.caption(f"({img['label']} — preview failed)")
                 render_image_download(img["url"], product.product_id, row_start + row.index(img))
@@ -762,7 +768,19 @@ def _render_actions(store, config, product):
                 "aliexpress_price": product.aliexpress_price,
                 **economics,
             }
-            store.update_product(product.product_id, updates)
+
+            # Track per-sheet outcome so the success banner is honest —
+            # previously a silent 429 on Agent Tasks looked like "saved"
+            # because the Products write succeeded. Now the user sees
+            # exactly which sheets got the update and which didn't.
+            results: dict[str, str] = {}
+
+            try:
+                store.update_product(product.product_id, updates)
+                results["Products"] = "ok"
+            except Exception as exc:
+                logger.exception("update_product failed: %s", exc)
+                results["Products"] = f"failed: {exc}"
 
             # Push the same AliExpress fields back to the Keyword row so
             # the Research inbox shows the current values if the user
@@ -773,11 +791,10 @@ def _render_actions(store, config, product):
                         "aliexpress_url": product.aliexpress_url,
                         "aliexpress_price": product.aliexpress_price,
                     })
+                    results["Keywords"] = "ok"
                 except Exception as exc:
-                    logger.warning(
-                        "update_keyword(ali fields) failed for %s: %s",
-                        product.keyword_id, exc,
-                    )
+                    logger.exception("update_keyword(ali fields) failed: %s", exc)
+                    results["Keywords"] = f"failed: {exc}"
 
             # Sync to Agent Tasks — either updating an existing row (most
             # common: product was already sent to agent) or appending a
@@ -791,12 +808,23 @@ def _render_actions(store, config, product):
                     "aliexpress_price": product.aliexpress_price,
                 })
                 store.sync_product_to_agent_tasks(product)
+                results["Agent Tasks"] = "ok"
             except Exception as exc:
-                logger.warning(
-                    "agent tasks sync failed for %s: %s",
-                    product.product_id, exc,
+                logger.exception("agent tasks sync failed: %s", exc)
+                results["Agent Tasks"] = f"failed: {exc}"
+
+            ok = [k for k, v in results.items() if v == "ok"]
+            failed = [(k, v) for k, v in results.items() if v != "ok"]
+            if failed:
+                st.error(
+                    "Partial save — "
+                    + ", ".join(ok) + " saved; "
+                    + "; ".join(f"{k} {v}" for k, v in failed)
                 )
-            st.success("Saved — product, keyword, and agent-tasks row updated.")
+            else:
+                st.success(
+                    "Saved — " + ", ".join(ok) + " all updated."
+                )
             st.rerun()
 
 
