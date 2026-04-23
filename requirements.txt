@@ -3,7 +3,9 @@ python-dotenv>=1.0.0
 pyyaml>=6.0
 
 # Dashboard
-streamlit>=1.40.0
+# 1.42+ keeps us on a modern `st.secrets` surface and lets us swap in native
+# `st.login()` / OIDC later without bumping the pin again.
+streamlit>=1.42.0
 
 # Google APIs
 google-ads>=25.0.0
@@ -16,11 +18,17 @@ gspread>=6.1.0
 # Shopify
 ShopifyAPI>=12.6.0
 
-# OpenAI
+# OpenAI (legacy — kept in case other call sites still use it)
 openai>=1.50.0
+
+# Anthropic (primary LLM provider — keyword ideation uses Claude Sonnet 4.5)
+anthropic>=0.60.0
 
 # SerpAPI
 google-search-results>=2.4.2
+
+# Google Trends (free tier, used for validating Best Sellers candidates)
+pytrends>=4.9.2
 
 # Scheduling
 apscheduler>=3.10.4

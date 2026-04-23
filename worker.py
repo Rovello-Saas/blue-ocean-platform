@@ -1,78 +1,26 @@
 """
-Background worker for the Blue Ocean Platform.
-Runs the scheduler for automated product discovery, performance tracking,
-and decision engine.
+Railway / Heroku worker entrypoint.
 
-Usage (Railway worker service):
-    python worker.py
+Thin shim over `python -m src.scheduler`. Kept at project root because some
+PaaS setups (Railway's default Procfile behaviour) expect a top-level
+script file rather than a module invocation. The daemon logic — job list,
+signal handling, heartbeat, `--once` escape hatch — lives in
+`src/scheduler/__main__.py` so both entrypoints stay in sync.
+
+Usage:
+    python worker.py                    # Railway / Heroku worker service
+    python -m src.scheduler             # equivalent, preferred locally
+    python -m src.scheduler --once research   # run one job and exit
 """
 
-import sys
 import os
-import logging
-import time
+import sys
 
-# Add project root to path
+# Ensure the project root is on sys.path when invoked via bare `python
+# worker.py` from any directory.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from dotenv import load_dotenv
-load_dotenv()
-
-from src.core.config import AppConfig
-from src.sheets.manager import get_data_store
-from src.scheduler.jobs import JobScheduler
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    handlers=[logging.StreamHandler()],
-)
-logger = logging.getLogger(__name__)
-
-
-def main():
-    logger.info("=" * 60)
-    logger.info("  Blue Ocean Platform - Background Worker")
-    logger.info("=" * 60)
-
-    try:
-        store = get_data_store()
-        config = AppConfig()
-
-        # Load config from Sheet
-        try:
-            sheet_config = store.get_config()
-            if sheet_config:
-                config.merge_sheet_config(sheet_config)
-                logger.info("Loaded config from Google Sheet")
-        except Exception as e:
-            logger.warning("Could not load sheet config: %s. Using defaults.", e)
-
-        scheduler = JobScheduler(store, config)
-        scheduler.start()
-
-        logger.info("Scheduler started successfully! Waiting for jobs...")
-
-        # Keep running
-        while True:
-            time.sleep(60)
-
-            # Health check
-            jobs = scheduler.get_job_status()
-            running_jobs = len([j for j in jobs if j.get("next_run")])
-            logger.debug("Scheduler health: %d jobs active", running_jobs)
-
-    except KeyboardInterrupt:
-        logger.info("Shutting down scheduler...")
-        if 'scheduler' in locals():
-            scheduler.stop()
-        logger.info("Goodbye!")
-
-    except Exception as e:
-        logger.error("Fatal error: %s", e, exc_info=True)
-        sys.exit(1)
-
+from src.scheduler.__main__ import main  # noqa: E402  (must come after sys.path fix)
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

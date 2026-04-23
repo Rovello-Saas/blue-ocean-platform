@@ -29,6 +29,14 @@ class DataStore(ABC):
         """Add a new keyword research result."""
         pass
 
+    def add_keywords_bulk(self, keywords: list[KeywordResearch]) -> None:
+        """Add many keywords in one go. Default falls back to a per-item loop;
+        backends can override for a single-round-trip write (e.g. Sheets
+        `append_rows`) — important to stay under rate-limit quotas when a
+        pipeline run adds dozens of rows at once."""
+        for kw in keywords:
+            self.add_keyword(kw)
+
     @abstractmethod
     def update_keyword(self, keyword_id: str, updates: dict) -> None:
         """Update fields on a keyword."""
@@ -55,6 +63,12 @@ class DataStore(ABC):
         """Add a new product."""
         pass
 
+    def add_products_bulk(self, products: list[Product]) -> None:
+        """Add many products in one go. Default falls back to a per-item
+        loop — backends should override with a batched write."""
+        for p in products:
+            self.add_product(p)
+
     @abstractmethod
     def update_product(self, product_id: str, updates: dict) -> None:
         """Update fields on a product."""
@@ -70,6 +84,11 @@ class DataStore(ABC):
     def add_log(self, log: ActionLog) -> None:
         """Add an action log entry."""
         pass
+
+    def add_logs_bulk(self, logs: list[ActionLog]) -> None:
+        """Bulk insert action logs. Default falls back to per-item loop."""
+        for log in logs:
+            self.add_log(log)
 
     @abstractmethod
     def get_logs(self, product_id: str = None, limit: int = 100) -> list[ActionLog]:

@@ -129,6 +129,114 @@ def main():
         st.markdown("---")
         st.markdown("**Research Filters**")
 
+        # ── Market presets ────────────────────────────────────────────
+        # Empirically-calibrated defaults per market. Clicking a button
+        # writes the preset values into st.session_state (keyed the same
+        # way the widgets below are keyed), then reruns — on rerun the
+        # widgets pick up the session-state values and display them.
+        # Nothing is persisted until the user hits Save at the bottom,
+        # so presets are fully previewable/tweakable.
+        SUGGESTED_US = {
+            # Movanella — google.com PMax, USD. DataForSEO returns USD
+            # CPCs for US queries, so the "Maximum CPC (EUR)" field
+            # effectively caps at $1.20 here. US Shopping is more
+            # saturated than EU so we allow more competitors. The
+            # tiered-filter shared config/defaults.yaml tiers apply —
+            # the legacy max_competitors / min_differentiation values
+            # below only kick in if tiered is turned OFF.
+            "research_min_volume": 250,
+            "research_max_cpc": 1.20,
+            "research_use_tiered_filter": True,
+            "research_max_competitors": 25,
+            "research_min_differentiation": 25,
+            "research_keywords_per_run": 150,
+            "research_min_ali_rating": 4.5,
+            "research_min_ali_orders": 500,
+        }
+        SUGGESTED_DE = {
+            # German market — google.de, EUR. Lower volumes and CPCs
+            # across the board vs. US. Tiered qualification is the
+            # recommended path here: we've seen the binary competition
+            # gate repeatedly kill every Best-Sellers-derived keyword
+            # (11/11 on 2026-04-22 13:35 at max=20) because DE Shopping
+            # SERPs cluster in the 19-32 competitor band. Tiers accept
+            # those candidates when volume and diff_score justify it,
+            # reject them when they're mid-market saturated.
+            # Tier A+ recalibration (2026-04-22): min_vol 250→150 to let
+            # the `micro` strategy capture cluster-demand shapes; max_cpc
+            # 1.00→1.25 to match Lebesgue DE 2026 benchmark (avg €0.91,
+            # dropship avg €1.00-$1.12 — €1.25 gives 35% margin headroom
+            # on €50+ AOV products).
+            "research_min_volume": 150,
+            "research_max_cpc": 1.25,
+            "research_use_tiered_filter": True,
+            "research_max_competitors": 25,
+            "research_min_differentiation": 10,
+            "research_keywords_per_run": 150,
+            "research_min_ali_rating": 4.5,
+            "research_min_ali_orders": 500,
+        }
+
+        preset_col1, preset_col2, preset_col3 = st.columns([1, 1, 2])
+        with preset_col1:
+            if st.button(
+                "Suggested settings for US",
+                use_container_width=True,
+                help=(
+                    "Movanella / google.com PMax. Tuned for USD CPCs, "
+                    "higher US Shopping competition density, and broader "
+                    "AliExpress supplier pool."
+                ),
+                key="preset_us_btn",
+            ):
+                for _k, _v in SUGGESTED_US.items():
+                    st.session_state[_k] = _v
+                st.toast("Applied US preset — review and Save to persist")
+                st.rerun()
+        with preset_col2:
+            if st.button(
+                "Suggested settings for Germany",
+                use_container_width=True,
+                help=(
+                    "Merivalo-style / google.de. Tuned for EUR CPCs, "
+                    "smaller DE market volumes, and less saturated "
+                    "German Shopping SERPs."
+                ),
+                key="preset_de_btn",
+            ):
+                for _k, _v in SUGGESTED_DE.items():
+                    st.session_state[_k] = _v
+                st.toast("Applied DE preset — review and Save to persist")
+                st.rerun()
+        with preset_col3:
+            st.caption(
+                "Click to prefill the filter fields below with the "
+                "recommended settings for that market. You can still "
+                "tweak anything before saving."
+            )
+
+        # ── Tiered filter toggle ──────────────────────────────────────
+        # When ON, the (max_competitors, min_differentiation) fields below
+        # are IGNORED by the competition stage — the strategy portfolio in
+        # config/defaults.yaml takes over. We still show the legacy fields
+        # so users can switch back without losing their values, but they're
+        # labelled "(legacy)" to make the active mode unambiguous.
+        use_tiered_filter = st.checkbox(
+            "Use strategy portfolio (tiered qualification)",
+            value=bool(config.get("research.use_tiered_filter", True)),
+            help=(
+                "A candidate passes if (volume, competitors, differentiation, "
+                "trend) fits ANY strategy in the portfolio below. Each "
+                "strategy gets its own slice of the per-run output budget, so "
+                "one Discover run produces a diversified basket instead of 5 "
+                "products matching the same bet. Hard floor: 250/mo volume, "
+                "hard ceiling: 25 competitors. Uncheck to fall back to the "
+                "legacy binary max_competitors / min_differentiation "
+                "thresholds below."
+            ),
+            key="research_use_tiered_filter",
+        )
+
         col1, col2 = st.columns(2)
 
         with col1:
@@ -137,23 +245,57 @@ def main():
                 min_value=0, max_value=100000,
                 value=config.min_search_volume,
                 step=100,
-                help="Keywords below this volume are filtered out"
+                help="Keywords below this volume are filtered out",
+                key="research_min_volume",
             )
 
+            # NOTE: Named `research_max_cpc` (not `max_cpc`) to avoid shadowing
+            # the auto-computed economics `max_cpc` metric later in this file,
+            # which would overwrite this value before the save.
+            # We read through `config.get()` rather than the `max_cpc` property
+            # so this widget keeps working on older AppConfig module instances
+            # that Streamlit may still have cached in sys.modules from before
+            # the property was added.
+            research_max_cpc = st.number_input(
+                "Maximum CPC (EUR)",
+                min_value=0.0, max_value=20.0,
+                value=float(config.get("research.max_cpc", 0.0) or 0.0),
+                step=0.10, format="%.2f",
+                help=(
+                    "Drop keywords whose DataForSEO estimated CPC is above this. "
+                    "0 disables the filter. E.g. set to 1.00 to only keep "
+                    "keywords priced at €1.00 or below."
+                ),
+                key="research_max_cpc",
+            )
+
+            legacy_label_suffix = " (legacy — ignored when tiered is on)" if use_tiered_filter else ""
             max_competitors = st.number_input(
-                "Maximum Competitors in Google Shopping",
+                f"Maximum Competitors in Google Shopping{legacy_label_suffix}",
                 min_value=1, max_value=50,
                 value=config.max_competitors,
                 step=1,
-                help="Keywords with more competitors are filtered out"
+                help=(
+                    "Binary threshold — active only when tiered qualification is OFF. "
+                    "When tiered is ON, each tier carries its own competitor cap "
+                    "and the hard ceiling (25) takes over as the global cutoff."
+                ),
+                key="research_max_competitors",
+                disabled=use_tiered_filter,
             )
 
             min_differentiation = st.slider(
-                "Minimum Differentiation Score",
+                f"Minimum Differentiation Score{legacy_label_suffix}",
                 min_value=0, max_value=100,
                 value=int(config.min_differentiation_score),
                 step=5,
-                help="Higher = more competitors sell the same product (easier to differentiate). 0 = all different products."
+                help=(
+                    "Binary threshold — active only when tiered qualification is OFF. "
+                    "Higher = more competitors sell the same product "
+                    "(easier to differentiate). 0 = all different products."
+                ),
+                key="research_min_differentiation",
+                disabled=use_tiered_filter,
             )
 
         with col2:
@@ -171,7 +313,8 @@ def main():
                 min_value=10, max_value=500,
                 value=int(config.get("research.keywords_per_run", 150)),
                 step=10,
-                help="Number of keywords the AI generates per run"
+                help="Number of keywords the AI generates per run",
+                key="research_keywords_per_run",
             )
 
             min_ali_rating = st.slider(
@@ -179,7 +322,8 @@ def main():
                 min_value=3.0, max_value=5.0,
                 value=config.min_aliexpress_rating,
                 step=0.1,
-                help="Filter out products below this rating"
+                help="Filter out products below this rating",
+                key="research_min_ali_rating",
             )
 
             min_ali_orders = st.number_input(
@@ -187,9 +331,116 @@ def main():
                 min_value=0, max_value=50000,
                 value=config.min_aliexpress_orders,
                 step=100,
-                help="Filter out products with fewer orders (quality signal)"
+                help="Filter out products with fewer orders (quality signal)",
+                key="research_min_ali_orders",
             )
 
+        # ── Strategy Portfolio editor ─────────────────────────────────
+        # Each strategy is a first-class bet with its own criteria, slot
+        # budget, and score weight. Candidates can match multiple
+        # strategies; slots are allocated round-robin across strategies so
+        # one Discover run produces a diversified basket instead of 5
+        # products all matching the same bet.
+        #
+        # Editable here: enabled + slot count (day-to-day portfolio
+        # rebalancing). Criteria (vol/comp/diff/trend floors) are
+        # shown read-only — edit config/defaults.yaml to retune them.
+        strategies_edited = None
+        if use_tiered_filter:
+            from src.research import opportunity as _opp
+
+            st.markdown("---")
+            st.markdown("**Strategy Portfolio**")
+            st.caption(
+                "Strategies gate which candidates qualify (each has its own "
+                "vol / comp / diff criteria) and supply a **score weight** "
+                "that ranks survivors. Every run keeps the global top "
+                "`max_products_per_run` by composite score — no per-strategy "
+                "quotas, so 5 premium candidates won't be dropped just "
+                "because premium 'already has one'. Turn a bet off here to "
+                "stop its candidates qualifying at all."
+            )
+
+            current_strategies = (
+                config.get("research.strategies")
+                or _opp.DEFAULT_STRATEGIES
+            )
+
+            # Column header row. Slots column was removed when we moved to
+            # a global top-N selection model — see src/research/pipeline.py
+            # "Step 4b: Global top-N cap" for the rationale. We keep slots
+            # in the saved config (as a constant 1) to stay schema-stable
+            # for any legacy callers; it's a no-op.
+            hcol = st.columns([2, 1, 5])
+            hcol[0].markdown("**Strategy**")
+            hcol[1].markdown("**Enabled**")
+            hcol[2].markdown("**Weight · Criteria**")
+
+            strategies_edited = []
+            for i, strat in enumerate(current_strategies):
+                name = strat.get("name", f"strategy_{i}")
+                criteria = strat.get("criteria", {}) or {}
+
+                # Build a short criteria summary for display.
+                crit_bits = []
+                if (v := criteria.get("volume_min")) is not None:
+                    crit_bits.append(f"vol ≥ {int(v)}")
+                if (v := criteria.get("volume_max")) is not None:
+                    crit_bits.append(f"vol < {int(v)}")
+                if (v := criteria.get("comp_max")) is not None:
+                    crit_bits.append(f"comp ≤ {int(v)}")
+                if (v := criteria.get("diff_min")) is not None:
+                    crit_bits.append(f"diff ≥ {int(v)}")
+                if (v := criteria.get("trend_slope_min")) is not None:
+                    crit_bits.append(f"trend ≥ {float(v):+.1f}")
+                crit_text = " · ".join(crit_bits) or "no criteria"
+                weight = float(strat.get("score_weight", 0.7))
+
+                rcol = st.columns([2, 1, 5])
+                with rcol[0]:
+                    st.markdown(f"`{name}`")
+                with rcol[1]:
+                    enabled = st.checkbox(
+                        "Enabled",
+                        value=bool(strat.get("enabled", True)),
+                        key=f"strat_{name}_enabled",
+                        label_visibility="collapsed",
+                        help=f"Turn the '{name}' bet on/off",
+                    )
+                with rcol[2]:
+                    st.caption(f"weight {weight:.2f} · {crit_text}")
+
+                strategies_edited.append({
+                    "name": name,
+                    "enabled": bool(enabled),
+                    # slots kept at 1 for config-schema compat; ignored by
+                    # pipeline (global top-N replaced slot allocation).
+                    "slots": 1,
+                    "score_weight": weight,
+                    "criteria": criteria,
+                })
+
+            # Summary line. With global top-N, all we care about is how many
+            # strategies are qualifying candidates.
+            active_count = sum(1 for s in strategies_edited if s["enabled"])
+            max_per_run = int(
+                config.get("research.max_products_per_run", 5)
+            )
+            if active_count == 0:
+                st.error(
+                    "No strategies enabled — no candidates will qualify "
+                    "and the pipeline will return 0 products."
+                )
+            else:
+                st.caption(
+                    f"**{active_count}** strateg"
+                    f"{'y' if active_count == 1 else 'ies'} enabled. "
+                    f"Each run keeps the top **{max_per_run}** candidates "
+                    f"by composite score, drawn from any of the qualifying "
+                    f"strategies."
+                )
+
+        st.markdown("---")
         category_focus = st.text_area(
             "Category Focus (optional, one per line)",
             value="\n".join(config.get("research.category_focus", [])),
@@ -656,6 +907,8 @@ def main():
                 "auto_discovery_enabled": auto_discovery,
                 "auto_discovery_time": auto_time.strftime("%H:%M"),
                 "min_monthly_search_volume": min_volume,
+                "max_cpc": research_max_cpc,
+                "use_tiered_filter": use_tiered_filter,
                 "max_competitors": max_competitors,
                 "min_differentiation_score": min_differentiation,
                 "research_frequency_hours": research_frequency,
@@ -663,6 +916,12 @@ def main():
                 "min_aliexpress_rating": min_ali_rating,
                 "min_aliexpress_orders": min_ali_orders,
                 "category_focus": [c.strip() for c in category_focus.split("\n") if c.strip()],
+                # Only overwrite the sheet's strategies list when the user
+                # has actually seen/edited the portfolio editor (i.e.,
+                # tiered filter is ON). When OFF we leave the stored
+                # portfolio intact so flipping tiered back on restores it.
+                **({"strategies": strategies_edited}
+                   if strategies_edited is not None else {}),
             },
             "economics": {
                 "min_selling_price": min_sell_price,

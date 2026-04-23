@@ -17,8 +17,11 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
-# Load .env file
-load_dotenv()
+# Load .env file. `override=True` so values in .env always win over anything
+# already present in the parent shell — we were getting silent failures when
+# the launching shell had a credential name (e.g. OPENAI_API_KEY) set to an
+# empty string, which dotenv's default behaviour would refuse to overwrite.
+load_dotenv(override=True)
 
 # Project root
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -140,6 +143,11 @@ class AppConfig:
     @property
     def min_search_volume(self) -> int:
         return int(self.get("research.min_monthly_search_volume", 500))
+
+    @property
+    def max_cpc(self) -> float:
+        """Upper bound on DataForSEO estimated CPC. 0 = disabled."""
+        return float(self.get("research.max_cpc", 0.0) or 0.0)
 
     @property
     def max_competitors(self) -> int:
@@ -293,6 +301,16 @@ GOOGLE_ADS_CUSTOMER_ID = get_env("GOOGLE_ADS_CUSTOMER_ID")
 GOOGLE_ADS_LOGIN_CUSTOMER_ID = get_env("GOOGLE_ADS_LOGIN_CUSTOMER_ID")
 GOOGLE_SHEETS_CREDENTIALS_PATH = get_env("GOOGLE_SHEETS_CREDENTIALS_PATH", "credentials/google_service_account.json")
 GOOGLE_SHEETS_SPREADSHEET_ID = get_env("GOOGLE_SHEETS_SPREADSHEET_ID")
+# Separate spreadsheet for the sourcing agent's Agent Tasks tab.
+# Sheets permissions are per-*spreadsheet*, not per-tab — giving the agent's
+# service account access to the main sheet means it can read every tab
+# (Keywords, Drops, Config, ActionLog, ...). We keep the agent confined to
+# its own spreadsheet so a prompt-injected agent can at worst leak the tasks
+# we already handed it. Falls back to the main sheet ID if unset, preserving
+# the pre-split behavior for environments that haven't migrated yet.
+GOOGLE_SHEETS_AGENT_SPREADSHEET_ID = get_env(
+    "GOOGLE_SHEETS_AGENT_SPREADSHEET_ID"
+) or GOOGLE_SHEETS_SPREADSHEET_ID
 GOOGLE_MERCHANT_CENTER_ID = get_env("GOOGLE_MERCHANT_CENTER_ID")
 SHOPIFY_SHOP_URL = get_env("SHOPIFY_SHOP_URL")
 SHOPIFY_STOREFRONT_DOMAIN = get_env("SHOPIFY_STOREFRONT_DOMAIN")
@@ -301,6 +319,14 @@ ALIEXPRESS_APP_KEY = get_env("ALIEXPRESS_APP_KEY")
 ALIEXPRESS_APP_SECRET = get_env("ALIEXPRESS_APP_SECRET")
 ALIEXPRESS_TRACKING_ID = get_env("ALIEXPRESS_TRACKING_ID")
 SERPAPI_KEY = get_env("SERPAPI_KEY")
+ANTHROPIC_API_KEY = get_env("ANTHROPIC_API_KEY")
+
+# DataForSEO — Google Keyword Planner replacement.
+# Keywords Data API → Google Ads → Search Volume (Live) returns real
+# monthly search volume + CPC without requiring a Google Ads account on
+# Basic/Standard access tier. Pricing: $0.05 per task of up to 1000 kws.
+DATAFORSEO_LOGIN = get_env("DATAFORSEO_LOGIN")
+DATAFORSEO_PASSWORD = get_env("DATAFORSEO_PASSWORD")
 
 # Page cloner (Node service). The Python platform POSTs a URL and polls for
 # completion; the Node service does the actual scrape/generate/upload work.

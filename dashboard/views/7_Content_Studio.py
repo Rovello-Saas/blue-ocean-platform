@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 # Only show products that are validated / ready for the store
 READY_STATUSES = {
-    "cost_received", "ready_to_test", "listing_created",
+    "ready_to_test", "listing_created",
     "testing", "winner", "scaling",
 }
 
@@ -173,7 +173,7 @@ def main():
     ]
 
     if not eligible:
-        st.info("No products validated for the store yet. Products appear here once they reach 'cost_received' status or have a Shopify listing.")
+        st.info("No products validated for the store yet. Products appear here once they reach 'ready_to_test' (passed economics) or have a Shopify listing.")
         return
 
     product_options = {

@@ -274,3 +274,13 @@ class EconomicValidator:
             "test_budget": 0,
             "kill_threshold_spend": 0,
         }
+
+
+# Manual-review helpers (`submit_manual_landed_cost`, `reject_manual_review`)
+# were removed 2026-04-23. The Research Inbox's "Send to Agent" flow now
+# covers the same ground: it runs EconomicValidator.calculate_economics on
+# the user-provided Ali price and upserts the Product with status
+# READY_TO_TEST (or SOURCING if the price is still empty). See
+# `_send_to_agent` in `dashboard/views/2_Research.py`. Kill-from-Inbox is
+# a plain `store.update_keyword(kid, {"status": "killed"})` — no Product
+# row, no log needed because no Product existed.

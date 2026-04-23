@@ -15,14 +15,278 @@ global:
 research:
   auto_discovery_enabled: false  # Enable automatic scheduled discovery
   auto_discovery_time: "03:00"  # Time to run daily (24h format, e.g. "03:00")
-  min_monthly_search_volume: 500
-  max_competitors: 30
+  # Tier A recalibration (2026-04-22): 250 → 150 to match HARD_VOLUME_FLOOR
+  # and make the `micro` strategy actually live (its volume_min=150 was
+  # dead code while this gate was still 250).
+  min_monthly_search_volume: 150
+  # Upper bound on DataForSEO estimated CPC (EUR/USD, depending on country).
+  # 0 disables the filter. Typical values: 0.50–1.50 for low-cost traffic,
+  # 2.00+ for competitive categories. Keywords above this get dropped at
+  # the same stage as the volume filter, with an audit trail in the funnel.
+  # Tier A recalibration: bumped default 0.0 → 1.25 so fresh installs get
+  # a sensible cap out of the box. DE avg CPC is €0.91 (Lebesgue 2026),
+  # dropship avg €1.00-$1.12 — €1.25 gives headroom at 35% margin for
+  # €50+ AOV products without running unsustainable traffic.
+  max_cpc: 1.25
+  # Legacy binary thresholds. When `use_tiered_filter: true` (recommended),
+  # these are IGNORED by the competition stage — the tier table below takes
+  # over. They remain as a last-ditch compat switch if you need to disable
+  # the tiered logic without editing code.
+  max_competitors: 25
   min_differentiation_score: 0
+
+  # ─── Strategy Portfolio ──────────────────────────────────────────────
+  # Binary (vol, comp, diff) thresholds — and even a single-match tier
+  # table — can't express the business reality that SIX very different
+  # candidate shapes are all worth betting on, but each one needs its own
+  # criteria AND its own slice of the per-run output budget. This is a
+  # portfolio, not a filter: each strategy is a first-class bet.
+  #
+  # A keyword can match MULTIPLE strategies (e.g. vol=6k / comp=10 /
+  # diff=14 qualifies for both `premium` AND `saturated_volume`). Slot
+  # allocation uses round-robin across strategies so one run outputs a
+  # diversified basket — one premium, one rising_niche, one saturated
+  # big-pie, etc. — rather than five copies of whichever bet happened to
+  # have the highest single score.
+  #
+  # Hard floors/ceilings in src/research/opportunity.py still apply as a
+  # safety net (vol ≥ 150, comp ≤ 25 — floor lowered from 250 in Tier A
+  # recalibration so `micro` can capture cluster-demand opportunities).
+  #
+  # Research anchors (2026-04, DE Google Shopping, PMax):
+  #   - 30-50 conv/month is Google's stated minimum for PMax smart-bidding
+  #     to converge. 250/mo is the absolute floor where variant-expansion
+  #     can compound into that threshold (Store Growers 1.91% CVR × 1% CTR).
+  #   - 40-60% CPC inflation at 8+ advertisers (Lebesgue benchmark). Past
+  #     25 comp the projected CPC breaks break-even BROAS on 30% margins.
+  #   - Impression-share: 30-50% achievable at ≤10 advertisers, <15% at 20+.
+  #     `volume` and `saturated_volume` accept higher comp because bigger
+  #     niches absorb lower IS and still hit conv volume for optimization.
+  #   - `rising_niche` thesis: advertisers lag Google's data by weeks.
+  #     RISER-flagged niches are a pre-saturation window worth betting on
+  #     even at moderate comp.
+  #
+  # Set `use_tiered_filter: true` to use this portfolio. When true, the
+  # `strategies` list below is the source of truth — `max_competitors` and
+  # `min_differentiation_score` above are IGNORED.
+  use_tiered_filter: true
+  strategies:
+    - name: premium            # big niche, thin SERP — textbook blue ocean
+      enabled: true
+      slots: 1
+      score_weight: 1.0
+      criteria:
+        # Tier B recalibration (2026-04-22 run 2): comp_max 22 → 25. The
+        # previous Tier A+ comp≤22 killed `fahrrad navi` (4400 vol / 21
+        # comp / 5 diff) and similar premium-shape candidates where the
+        # SERP density lives in the 22-25 band. Live DE data from run 2
+        # showed competitor counts distributed 17-28 with median 22 —
+        # 22 was gating the MIDDLE of the distribution. 25 keeps
+        # premium strictly below the hard ceiling while catching the
+        # top 75% of real DE blue-ocean shapes.
+        volume_min: 3000
+        comp_max: 25
+        diff_min: 7
+    - name: volume             # mid niche, tolerable SERP pressure
+      enabled: true
+      slots: 1
+      score_weight: 0.85
+      criteria:
+        # Tier B: comp_max 22 → 26, diff_min 8 → 5. Run 2 showed that
+        # mid-volume DE categories (bike parts, kitchen appliances)
+        # structurally cluster at 22-26 comp / 5-8 diff, often with
+        # very fragmented SERPs because EU marketplaces spray similar
+        # SKUs. Blocking diff<8 killed defensible bets with genuine
+        # mid-niche demand. Hard floor at 5 still blocks un-runnable
+        # fully-fragmented junk.
+        volume_min: 1500
+        volume_max: 3000
+        comp_max: 26
+        diff_min: 5
+    - name: small              # defensible micro-niche, fastest first sale
+      enabled: true
+      slots: 1
+      score_weight: 0.70
+      criteria:
+        # Tier B: comp_max 22 → 24, diff_min 6 → 5. Small bet still wants
+        # a defensible SERP (hence the tighter comp_max than `volume`),
+        # but `multifunktions küchenmaschine` at vol=880 / comp=23 /
+        # diff=5 was killed only on 1-count margins that didn't reflect
+        # real competitive reality.
+        volume_min: 500
+        volume_max: 1500
+        comp_max: 24
+        diff_min: 5
+    - name: micro              # emerging / edge-case, thin SERP mandatory
+      enabled: true
+      slots: 1
+      score_weight: 0.55
+      criteria:
+        # Tier B: comp_max 6 → 22, diff_min 6 → 8. The old comp≤6 was
+        # fantasy for DE Shopping — run 2 had ZERO micro keywords at
+        # ≤6 competitors (the whole distribution lives at 17+).
+        # `etikettenprägegerät` at vol=210 / comp=22 / diff=15 (a VERY
+        # dominant single product SERP, textbook micro-bet) was killed
+        # on the un-reachable comp cap. New approach: tolerate the
+        # structural competition DE shows at any volume, but insist on
+        # higher differentiation (diff≥8) to prove there's ONE dominant
+        # product worth riding. The bet shape shifts from "thin SERP"
+        # (impossible in DE) to "structurally dominant SERP with clear
+        # winner to clone."
+        volume_min: 150
+        volume_max: 500
+        comp_max: 22
+        diff_min: 8
+    - name: saturated_volume   # big-pie bet — accept harder SERP if volume absorbs it
+      enabled: true
+      slots: 1
+      score_weight: 0.90
+      criteria:
+        # Tier B: comp_max 25 → 28, diff_min 8 → 7. `eismaschine` at
+        # vol=49500 / comp=26 / diff=8 — a 50k/mo niche with clear
+        # SERP structure — was killed on 1-count comp margin. New bound
+        # matches the HARD_COMPETITOR_CEILING (28); if a keyword is
+        # inside the hard ceiling AND has the huge volume to absorb
+        # CPC inflation, this bet runs.
+        volume_min: 5000
+        comp_max: 28
+        diff_min: 7
+    - name: rising_niche       # momentum bet — advertisers lag Google's data
+      enabled: true
+      slots: 1
+      score_weight: 0.80
+      criteria:
+        # volume_min matches the HARD FLOOR (250). `rising_niche` is the
+        # loosest bet by design. Below 500/mo a single keyword can't
+        # train PMax alone, but the real-world play is to bundle 3-5
+        # low-vol rising keywords into one campaign. The log(vol)
+        # component of opportunity_score already down-ranks 250-vol
+        # candidates ~30% below 2500-vol, so they naturally sink unless
+        # there's nothing better this run.
+        volume_min: 250
+        # comp_max matches the hard ceiling (28). On RISER trends we WANT
+        # the top of the comp band — that's the pre-saturation window
+        # this bet is designed to catch. DE Shopping structurally clusters
+        # at 17-28; a tighter cap just kills every candidate.
+        comp_max: 28
+        # Minimal diff floor. Loosest of any strategy because this bet is
+        # trend-driven, not convergence-driven — BUT diff<5 means the SERP
+        # is totally SKU-fragmented (~39 distinct products across 25
+        # sellers), no dominant product to dropship. Even on a rising
+        # trend, that's an un-runnable bet.
+        diff_min: 5
+        trend_slope_min: 0.3
   research_frequency_hours: 24
   category_focus: []  # Empty = all categories
   min_aliexpress_rating: 4.5
   min_aliexpress_orders: 500
+  # Relaxed quality floor used by `find_top3_matches` when scanning feed
+  # pages for a match. This is deliberately lower than the `min_aliexpress_*`
+  # pair above (which is used by `find_best_match` for final sourcing picks)
+  # — the top-3 search needs enough recall to return anything at all from
+  # noisy feeds, but 0/0 (the pre-2026-04-21 default) let 20-order / 3.8-star
+  # junk win by being the only substring hit. Set to 0 to disable either.
+  min_match_rating: 4.3
+  min_match_orders: 100
   keywords_per_run: 150
+  # Drop LLM-ideated keywords longer than this many words. DataForSEO's
+  # aggregated Keyword Planner data doesn't cover long descriptive phrases
+  # (6+ words rarely has volume), so we kill them upstream to save API
+  # spend and keep the sourcing queue populated with realistic search terms.
+  # The LLM prompt already targets 2–4 words; this is a defensive backstop.
+  max_keyword_words: 5
+  # Cap on the number of products each Discover run can promote to
+  # sourcing. A human agent can only physically source so many products per
+  # day — dumping 40 on them at once means they sit stale and the dashboard
+  # becomes noise. Run this daily; best N by composite score go through.
+  max_products_per_run: 5
+  # Layer 3 pre-SerpAPI QA cap. After volume/CPC filtering we send the
+  # surviving keywords to Claude in one batched call, asking for the top N
+  # by real-world profitability. Only those N proceed to SerpAPI ($0.015/kw).
+  # 0 disables Layer 3.
+  # 2026-04-22 Tier B: raised 20 → 40 after run 2 showed the cap
+  # artificially strangled the funnel (51 candidates → 20 Layer 3 picks,
+  # then only 4 survived competition — so Claude's top 20 weren't
+  # necessarily the right 20). Letting the competition filter do real
+  # work on 40 candidates costs ~$0.30 extra SerpAPI but gives the
+  # portfolio matcher a realistic pool to choose from.
+  pre_serpapi_cap: 40
+  # Layer 2 — drop LLM-self-flagged saturated / hard-to-source keywords in
+  # the ideation output before any paid API touches them. Turn off if you
+  # want to test Claude's pessimism against reality.
+  kill_high_competition: true
+  kill_hard_sourcing: true
+
+  # When true, Research Drops history is merged into the dedup blacklist so
+  # previously-killed candidates never re-enter the pipeline. When false,
+  # only the active Keywords tab blocks dedup — prior drops get a second
+  # look under the CURRENT filters. Flip to false for ONE run after a
+  # filter recalibration so rescues can happen; failing candidates just
+  # land back in drops, passing ones proceed.
+  # (The LLM avoid-list still includes drops regardless — we never want
+  # Claude to waste output slots regenerating ideas it's already seen.)
+  dedup_against_drops: true
+
+  # ─── Ideation source ─────────────────────────────────────────────────
+  # Where Step 1 gets its keyword candidates from.
+  #   "best_sellers" — pull top-selling products per category from Google
+  #                    Merchant Center, validate with Google Trends, then
+  #                    have Claude translate them into local keywords.
+  #                    Anchored in real Google Shopping demand.
+  #   "llm"          — Claude generates keywords from scratch. Covers the
+  #                    under-served niche space that Best Sellers (which
+  #                    is top-performers-by-definition) can't surface.
+  #                    Downstream Planner stage filters out hallucinated
+  #                    markets that have no real search volume.
+  #   "hybrid"       — run BOTH. Merges the two pools. Best Sellers
+  #                    candidates keep their RISER flag (trend_slope
+  #                    bonus for the rising_niche strategy). LLM
+  #                    candidates run at half-budget to keep Anthropic
+  #                    cost reasonable. This is the default because
+  #                    tonight's runs proved Best Sellers alone surfaces
+  #                    competitive commodity markets (comp 19-28 modal),
+  #                    while LLM-only floats ideas with no demand anchor.
+  #                    Together they give demand reality AND niche
+  #                    diversity.
+  # Best Sellers requires (a) service account with "Performance and
+  # insights" role on the MC account, (b) Market Insights ToS accepted in
+  # MC UI, (c) Content API enabled on the GCP project.
+  ideation_source: hybrid
+  # Fallback to LLM ideation if Best Sellers returns 0 rows (new MC
+  # accounts, unaccepted ToS, disabled API). Set false to hard-fail
+  # instead — useful when you want the pipeline to alert on MC breakage.
+  best_sellers_fallback_to_llm: true
+  # Optional category override. Empty list = use module defaults
+  # (DEFAULT_DROPSHIP_CATEGORIES in google_best_sellers.py, 12 categories).
+  # Accepts either flat IDs [536, 696, 730] or [{id: 536, name: "Home"}].
+  best_sellers_categories: []
+  # Rows to fetch per category per run. 30 × 12 categories = up to 360
+  # candidates, ~270 after dedup. Dry-run on DE (2026-04-22) showed 20/cat
+  # yielded only 37 keywords after translator skips — too thin given the
+  # volume filter kills ~70% downstream. 30/cat gives a wider funnel so
+  # Layer 3 (pre-SerpAPI QA) has real selection work to do.
+  best_sellers_per_category: 30
+  # Max keywords Claude generates per input product. 5 caused Anthropic
+  # gateway timeouts (~50s per batch at kw=5 × batch=10 × ~100 tokens
+  # each = 5k output tokens, right at the gateway's limit). Dropped
+  # back to 3 (2026-04-22) — the new "default-to-generating" prompt
+  # still gets Claude to fill the slots, and 10 × 3 × 100 = 3k tokens
+  # finishes in ~25s reliably.
+  best_sellers_kw_per_product: 3
+  # Run Google Trends (pytrends, free tier) as a secondary filter on the
+  # Best Sellers candidates. Declining terms get dropped. Fail-open: if
+  # Trends is unreachable we keep every candidate.
+  use_google_trends_validation: true
+  trends_drop_declining: true
+  # When true, drop FLAT and SINKER products from the Best Sellers pool —
+  # keep ONLY products Google flagged as RISER (week-over-week rising
+  # demand). Thesis: advertisers lag Google's data by weeks to months,
+  # so RISERs are the "pre-saturation" window where SERPs may still have
+  # <15 competitors. Established FLAT niches structurally sit at 20+ on
+  # DE Shopping regardless of how many dials you tune. Turn off if the
+  # RISER pool is too thin (fewer than ~30 products after dedup means
+  # the translator yield will be single-digit).
+  best_sellers_risers_only: true
 
 shipping:
   model: free  # free | paid | threshold
@@ -30,7 +294,12 @@ shipping:
   free_threshold: 0.0
 
 economics:
-  min_selling_price: 25.0  # EUR — skip products with competitor price below this
+  # 2026-04-22 Tier B: lowered 25 → 20 after run 2 killed `türvorhang
+  # insektenschutz` at €24.97 competitor median — a 3-cent margin on an
+  # un-validated arbitrary threshold. €20 still comfortably clears
+  # margin math (CPC €1.25 × 3x test budget = €3.75, 30% margin on €20
+  # = €6 → headroom of €2.25 per test). Below €20 margin math breaks.
+  min_selling_price: 20.0  # EUR — skip products with competitor price below this
   max_selling_price: 200.0  # EUR — skip products with competitor price above this
   assumed_conversion_rate: 0.01  # 1% for basic test pages
   safety_factor: 1.5

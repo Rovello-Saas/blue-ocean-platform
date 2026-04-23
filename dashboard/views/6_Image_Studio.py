@@ -93,7 +93,7 @@ def main():
         st.warning("No products found in the pipeline.")
         return
 
-    READY_STATUSES = {"cost_received", "ready_to_test", "listing_created", "testing", "winner", "scaling"}
+    READY_STATUSES = {"ready_to_test", "listing_created", "testing", "winner", "scaling"}
     eligible = [p for p in products if p.keyword and (p.test_status in READY_STATUSES or p.shopify_product_id)]
     product_options = {f"{p.keyword} ({p.country})": p for p in eligible}
 

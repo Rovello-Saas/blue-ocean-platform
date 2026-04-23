@@ -1,19 +1,25 @@
 """
-Home — unified Movanella platform cockpit.
+Home — unified Blue Ocean Platform cockpit.
 
-Two halves:
-  1. "[+ New product]" card picker at the top. Two workflow cards that jump
-     into the Clone or Research flow via `st.switch_page`. This is the
-     primary entry point for new work; the research dashboard below is
-     secondary context.
-  2. Research pipeline dashboard (preserved from the prior dashboard home).
-     Shows product status counts + totals for the Movanella/Google side.
-     Only renders if the Sheet is reachable; a stale Sheet shouldn't make
-     the landing page error out.
+Start-here page for both of the stores this platform operates:
+  • 🇺🇸 Movanella  — dropshipping pipeline (keyword → AliExpress → Google Ads)
+  • 🇩🇪 Merivalo   — page cloner (clone competitor URL → Meta Ads)
 
-Design intent: you arrive here, you see both workflows at equal weight,
-you pick one. The dashboard is there because the research pipeline already
-produces real data worth looking at — not because it's the main event.
+These are genuinely different workflows, not two views of the same data, so
+forcing them into a single funnel would mislead. Instead: you pick the site
+first, and the rest of the page reshapes to show only the stuff that matters
+for *that* store. The sidebar nav is always there when you want to dive into
+a specific tool (Products, Performance, etc.).
+
+Layout:
+  1. Site picker (segmented control, session-state backed).
+  2. Contextual hero — the primary CTA for the selected site.
+  3. Status pane — funnel + KPIs for Movanella, recent clone jobs for Merivalo.
+  4. Blockers — items that need a human decision, regardless of site.
+  5. Quick actions — shortcuts for the currently selected site.
+
+Design intent: landing here should answer "what do I do next?" without you
+having to hunt across five tabs to find the right entry point.
 """
 
 import sys
@@ -27,48 +33,425 @@ import streamlit as st
 # Routes target files inside dashboard/views/. Keep in sync with the names
 # registered in dashboard/app.py — Streamlit validates these at switch time
 # and raises a friendly error if they don't match.
-ROUTE_CLONE    = "views/_clone.py"
-ROUTE_RESEARCH = "views/2_Research.py"
+ROUTE_CLONE          = "views/_clone.py"
+ROUTE_RESEARCH       = "views/2_Research.py"
+ROUTE_PRODUCTS       = "views/3_Products.py"
+ROUTE_PERF           = "views/4_Performance.py"
+ROUTE_MANUAL_REVIEW  = "views/_manual_review.py"
 
 
-def _render_workflow_picker() -> None:
-    """Top-of-page: two cards for the two ways to start a new product."""
-    st.markdown("### Add a new product")
-    st.caption("Pick the workflow that matches what you have on hand.")
+# Sites the platform supports. Edit here and the picker + routing update in
+# one place. `id` is the internal key used in session state + for matching
+# against page-cloner storeId and (eventually) future per-site scoping.
+SITES = [
+    {"id": "all",       "name": "All sites",         "flag": "🌐", "channel": ""},
+    {"id": "movanella", "name": "Movanella",         "flag": "🇺🇸", "channel": "Google Ads"},
+    {"id": "merivalo",  "name": "Merivalo",          "flag": "🇩🇪", "channel": "Meta Ads"},
+]
 
-    left, right = st.columns(2, gap="large")
 
-    with left:
-        with st.container(border=True):
-            st.markdown("#### 🔗 I have a competitor URL")
-            st.write(
-                "Clone a competitor's product page end-to-end — scrape, "
-                "translate, generate a Shopify listing, import reviews."
+# ---------------------------------------------------------------------------
+# Site picker
+# ---------------------------------------------------------------------------
+
+def _site_picker() -> str:
+    """
+    Top-of-page segmented control. Persists choice in session state so the
+    selection survives reruns (metric clicks, quick-action buttons, etc.).
+    Returns the active site id: "all" | "movanella" | "merivalo".
+    """
+    # Initialise once on first render. Default "all" shows the picker in its
+    # neutral state — user explicitly picks to narrow the view.
+    if "active_site" not in st.session_state:
+        st.session_state.active_site = "all"
+
+    labels = {s["id"]: f"{s['flag']} {s['name']}" for s in SITES}
+    choice = st.segmented_control(
+        "Active site",
+        options=[s["id"] for s in SITES],
+        format_func=lambda sid: labels[sid],
+        default=st.session_state.active_site,
+        key="site_picker",
+        label_visibility="collapsed",
+    )
+
+    # `st.segmented_control` returns None if the user clicks the active pill
+    # to deselect. Treat that as a no-op — keep the previous selection so the
+    # page doesn't blank out on accidental clicks.
+    if choice:
+        st.session_state.active_site = choice
+    return st.session_state.active_site
+
+
+# ---------------------------------------------------------------------------
+# Contextual heroes — one per site
+# ---------------------------------------------------------------------------
+
+def _movanella_hero() -> None:
+    """Movanella = research-led pipeline. Primary CTA is 'start research'."""
+    with st.container(border=True):
+        left, right = st.columns([3, 1], vertical_alignment="center")
+        with left:
+            st.markdown("#### 🔬 Movanella — research pipeline")
+            st.caption(
+                "Keyword research → AliExpress sourcing → AI content → Shopify → "
+                "Google Shopping / PMax test campaign. Starts here."
             )
-            st.caption("Used for Meta-style launches (e.g. Merivalo).")
+        with right:
             if st.button(
-                "Start clone workflow",
-                key="wf_clone",
+                "Start research",
                 type="primary",
                 use_container_width=True,
-            ):
-                st.switch_page(ROUTE_CLONE)
-
-    with right:
-        with st.container(border=True):
-            st.markdown("#### 🔬 I have a keyword or niche")
-            st.write(
-                "Run keyword research → AliExpress sourcing → AI content "
-                "generation → Shopify listing → Google Ads test campaign."
-            )
-            st.caption("Used for Google Shopping / PMax launches (e.g. Movanella).")
-            if st.button(
-                "Start research workflow",
-                key="wf_research",
-                use_container_width=True,
+                key="hero_movanella",
             ):
                 st.switch_page(ROUTE_RESEARCH)
 
+
+def _merivalo_hero() -> None:
+    """Merivalo = clone-led pipeline. Primary CTA is 'clone a competitor URL'."""
+    with st.container(border=True):
+        left, right = st.columns([3, 1], vertical_alignment="center")
+        with left:
+            st.markdown("#### 🔗 Merivalo — page cloner")
+            st.caption(
+                "Paste a competitor product URL and we scrape, translate to "
+                "German (du-form), and publish to Shopify — ready for Meta Ads."
+            )
+        with right:
+            if st.button(
+                "Clone a page",
+                type="primary",
+                use_container_width=True,
+                key="hero_merivalo",
+            ):
+                st.switch_page(ROUTE_CLONE)
+
+
+def _all_sites_hero() -> None:
+    """Neutral view: both CTAs side-by-side so you can pick either one."""
+    left, right = st.columns(2, gap="medium")
+    with left:
+        _movanella_hero()
+    with right:
+        _merivalo_hero()
+
+
+# ---------------------------------------------------------------------------
+# Movanella status pane — funnel + KPIs
+# ---------------------------------------------------------------------------
+
+def _render_movanella_pipeline(store) -> None:
+    """Funnel hero + KPI row for the research/Google-Ads pipeline."""
+    try:
+        products = store.get_products()
+    except Exception as e:
+        st.warning(f"Couldn't load products from Sheet: {e}")
+        return
+
+    # Keywords are fetched best-effort: the funnel is still readable even if
+    # the keywords tab is empty / unreadable. Don't blow up the whole hero.
+    try:
+        keywords = store.get_keywords()
+    except Exception:
+        keywords = []
+
+    status_counts: dict[str, int] = {}
+    total_revenue = 0.0
+    total_spend = 0.0
+    total_profit = 0.0
+    for p in products:
+        status_counts[p.test_status] = status_counts.get(p.test_status, 0) + 1
+        total_revenue += float(p.revenue or 0)
+        total_spend   += float(p.spend or 0)
+        total_profit  += float(p.net_profit or 0)
+
+    # --- Hero: pipeline funnel ----------------------------------------------
+    from dashboard.components.widgets import compute_funnel_counts, pipeline_funnel
+
+    st.markdown("### Pipeline funnel")
+    st.caption(
+        "Left → right: how many keywords became a live ad. Each bar is a "
+        "subset of the one before — the drop-off shows where the pipeline leaks."
+    )
+    pipeline_funnel(compute_funnel_counts(keywords, products))
+
+    # --- KPI row ------------------------------------------------------------
+    st.markdown("### Business metrics")
+    st.caption("Movanella / Google Ads — rolling totals across all active tests.")
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Total products", len(products))
+    c2.metric("Active testing", status_counts.get("testing", 0))
+    c3.metric("Winners",        status_counts.get("winner", 0))
+    overall_roas = round(total_revenue / total_spend, 2) if total_spend > 0 else 0
+    c4.metric("Overall ROAS",   f"{overall_roas:.2f}")
+    c5.metric("Net profit",     f"€{total_profit:,.2f}")
+
+    # --- Status grid (detail, collapsed by default) -------------------------
+    with st.expander("Products by status — full breakdown", expanded=False):
+        status_info = [
+            ("discovered",      "Discovered",      "🔍"),
+            ("sourcing",        "Awaiting agent",  "📦"),
+            ("ready_to_test",   "Ready to test",   "🚀"),
+            ("listing_created", "Listing created", "🛍️"),
+            ("testing",         "Testing",         "🧪"),
+            ("winner",          "Winners",         "🏆"),
+            ("scaling",         "Scaling",         "📈"),
+            ("paused",          "Paused",          "⏸️"),
+            ("killed",          "Killed",          "💀"),
+            ("rejected",        "Rejected",        "❌"),
+        ]
+        cols = st.columns(5)
+        for i, (status, label, icon) in enumerate(status_info):
+            with cols[i % 5]:
+                st.metric(f"{icon} {label}", status_counts.get(status, 0))
+
+
+# ---------------------------------------------------------------------------
+# Merivalo status pane — recent clone jobs
+# ---------------------------------------------------------------------------
+
+def _render_merivalo_pipeline() -> None:
+    """
+    For Merivalo the 'pipeline' isn't a Sheet of products — it's the list of
+    page-cloner jobs. Show health + recent clones inline so the user doesn't
+    have to jump to the Clone page just to see status.
+    """
+    from src.page_cloner import PageClonerClient
+
+    client = PageClonerClient()
+
+    st.markdown("### Page cloner status")
+
+    if not client.health_check():
+        st.error(
+            f"Page cloner is unreachable at `{client.base_url}`. "
+            "Start it with `cd page-cloner && node server.js`."
+        )
+        return
+
+    st.caption(f"Connected to `{client.base_url}` ✓")
+
+    # Job list is best-effort — the detail page has richer controls.
+    try:
+        import requests
+        r = requests.get(f"{client.base_url}/api/jobs", timeout=5)
+        jobs = r.json() if r.ok else []
+    except Exception:
+        jobs = []
+
+    if not jobs:
+        st.info("No clone jobs yet. Paste a competitor URL above to start the first one.")
+        return
+
+    # Quick totals so you don't have to eyeball the list.
+    done    = sum(1 for j in jobs if j.get("status") == "done")
+    failed  = sum(1 for j in jobs if j.get("status") == "failed")
+    running = sum(1 for j in jobs if j.get("status") not in ("done", "failed"))
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total jobs", len(jobs))
+    c2.metric("✅ Done",    done)
+    c3.metric("⏳ Running", running)
+    c4.metric("❌ Failed",  failed)
+
+    st.markdown("#### Recent clones")
+    for j in jobs[:8]:
+        status = j.get("status", "")
+        icon   = {"done": "✅", "failed": "❌"}.get(status, "⏳")
+        url    = (j.get("url") or "").replace("https://", "")
+        store  = j.get("storeId", "?")
+        # Compact one-liner — full detail is on the Clone page.
+        st.markdown(
+            f"{icon} **{status}** · `{store}` · "
+            f"{url[:70]}{'…' if len(url) > 70 else ''}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Blockers — products that need a human decision
+# ---------------------------------------------------------------------------
+
+def _render_blockers(store) -> None:
+    """
+    Items the pipeline can't advance on its own: agent hasn't sent cost yet,
+    or the product is paused waiting on a call.
+
+    When many products share the same blocker (typical: "40 items waiting on
+    the sourcing agent"), rendering one card per product buries real signal
+    under a wall of identical rows. We instead group by (title, hint) and
+    render one summary card per group, with the first few product names
+    inlined as a sampler. Singletons keep their original detailed card so
+    individual paused / ready-to-list items still get a direct "Open" link
+    to the specific product.
+    """
+    try:
+        products = store.get_products()
+    except Exception:
+        return
+
+    # Each blocker is (product, title, hint, group_key). group_key drives
+    # aggregation; we keep it separate from the human-readable title so a
+    # future "kill all" or "filter Products tab" CTA can key off it.
+    blockers: list[tuple[object, str, str, str]] = []
+    for p in products:
+        if p.test_status == "pending_manual_review":
+            # The AliExpress auto-matcher couldn't find a DS-feed supplier
+            # match, so a human (user or partner) needs to look the product
+            # up on AliExpress and fill in the real landed cost. Routed to
+            # its dedicated Manual Review page, not Products.
+            blockers.append(
+                (p, "🔎 Needs manual AliExpress lookup",
+                 "Search AliExpress, paste the landed cost — economics fires on submit.",
+                 "manual_review")
+            )
+        elif p.test_status == "sourcing" and not float(p.landed_cost or 0):
+            blockers.append(
+                (p, "⏳ Waiting on cost from sourcing agent",
+                 "Agent should fill in landed_cost; pipeline then auto-validates.",
+                 "sourcing_no_cost")
+            )
+        elif p.test_status == "ready_to_test" and not p.shopify_product_id:
+            blockers.append(
+                (p, "🛍️ Ready to list — not yet in Shopify",
+                 "Scheduler will pick this up on the next listing job.",
+                 "ready_to_list")
+            )
+        elif p.test_status == "paused":
+            blockers.append(
+                (p, "⏸️ Paused — needs a call",
+                 "Decide whether to kill, resume, or swap creative.",
+                 "paused")
+            )
+
+    if not blockers:
+        return  # No chrome if nothing to show — keep the page calm.
+
+    # Bucket by group_key, preserving insertion order so the first blocker of
+    # each kind keeps its position in the visual stack.
+    groups: dict[str, list[tuple[object, str, str, str]]] = {}
+    for b in blockers:
+        groups.setdefault(b[3], []).append(b)
+
+    st.markdown(f"### ⚠️ Needs attention ({len(blockers)})")
+
+    for group_key, items in groups.items():
+        _, title, hint, _ = items[0]
+        countries = sorted({(p.country or "—") for p, *_ in items})
+
+        # Collapse: one summary card for the whole group when 2+ items share
+        # the same blocker. The typical case on a fresh batch is ALL 40
+        # sourcing items — showing 40 near-identical rows adds noise, not
+        # information. A sampler of up to 3 names + count is enough to make
+        # the group tangible without being a second Products page.
+        if len(items) >= 2:
+            sample = [(p.keyword or p.product_id) for p, *_ in items[:3]]
+            more = len(items) - len(sample)
+            sample_line = ", ".join(f"*{s}*" for s in sample)
+            if more > 0:
+                sample_line += f", +{more} more"
+
+            with st.container(border=True):
+                c1, c2 = st.columns([4, 1], vertical_alignment="center")
+                with c1:
+                    st.markdown(f"**{title} — {len(items)} products**")
+                    st.caption(
+                        f"{hint}  ·  countries: "
+                        f"{', '.join(f'`{c}`' for c in countries)}"
+                    )
+                    st.caption(sample_line)
+                with c2:
+                    if st.button(
+                        f"Open all ({len(items)})",
+                        key=f"blocker_group_{group_key}",
+                        use_container_width=True,
+                    ):
+                        # Manual-review items live on their own page — the
+                        # Products kanban shows them too but the form for
+                        # entering landed_cost is only on /Manual Review.
+                        if group_key == "manual_review":
+                            st.switch_page(ROUTE_MANUAL_REVIEW)
+                        else:
+                            # Drop a filter hint for the Products page to pick up
+                            # when/if it starts honouring it.
+                            st.session_state["products_filter_status"] = (
+                                items[0][0].test_status
+                            )
+                            st.switch_page(ROUTE_PRODUCTS)
+            continue
+
+        # Singleton — keep the detailed per-product card with a direct link
+        # so unique items (one paused product, one stuck listing) still get
+        # handled individually.
+        p, title, hint, _ = items[0]
+        with st.container(border=True):
+            c1, c2 = st.columns([4, 1], vertical_alignment="center")
+            with c1:
+                st.markdown(f"**{p.keyword or p.product_id}** — {title}")
+                st.caption(
+                    f"{hint}  ·  country `{p.country}`  ·  "
+                    f"last updated {(p.updated_at or '')[:10] or '—'}"
+                )
+            with c2:
+                if st.button(
+                    "Open",
+                    key=f"blocker_{p.product_id}",
+                    use_container_width=True,
+                ):
+                    # Manual-review has its own page; everything else is
+                    # actionable from the Products drawer.
+                    if p.test_status == "pending_manual_review":
+                        st.switch_page(ROUTE_MANUAL_REVIEW)
+                    else:
+                        st.session_state["focus_product_id"] = p.product_id
+                        st.switch_page(ROUTE_PRODUCTS)
+
+
+# ---------------------------------------------------------------------------
+# Quick actions — contextual
+# ---------------------------------------------------------------------------
+
+def _render_quick_actions(store, site: str) -> None:
+    """One-shot buttons for jobs the user runs often. Scoped to the picked site."""
+    # Merivalo has nothing to schedule — it's all on-demand clones. Hide the
+    # section rather than showing three disabled buttons for no reason.
+    if site == "merivalo":
+        return
+
+    st.markdown("#### Quick actions")
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        if st.button("🔬 Discover products", use_container_width=True, key="qa_discover"):
+            with st.spinner("Running product discovery…"):
+                from src.research.pipeline import ResearchPipeline
+                pipeline = ResearchPipeline(store)
+                stats = pipeline.run_for_all_countries()
+                added = sum(s.get("products_added_to_sourcing", 0) for s in stats)
+                st.success(f"Discovery complete — {added} new products found.")
+                st.rerun()
+
+    with col2:
+        if st.button("📊 Pull performance", use_container_width=True, key="qa_perf"):
+            with st.spinner("Pulling performance data…"):
+                from src.scheduler.jobs import JobScheduler
+                scheduler = JobScheduler(store)
+                scheduler.job_pull_performance()
+                st.success("Performance data updated.")
+                st.rerun()
+
+    with col3:
+        if st.button("🤖 Run decisions", use_container_width=True, key="qa_decisions"):
+            with st.spinner("Running decision engine…"):
+                from src.decisions.engine import DecisionEngine
+                engine = DecisionEngine(store)
+                results = engine.evaluate_all_products()
+                st.success(f"Decision engine complete — {len(results)} actions taken.")
+                st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# Sidebar notifications — unchanged from prior design
+# ---------------------------------------------------------------------------
 
 def _render_sidebar_notifications(store) -> None:
     """Surface unread notifications in the sidebar. Silent if none."""
@@ -95,100 +478,35 @@ def _render_sidebar_notifications(store) -> None:
                     st.rerun()
 
 
-def _render_research_dashboard(store) -> None:
-    """Research-pipeline metrics (preserved from the old home page)."""
-    try:
-        products = store.get_products()
-    except Exception as e:
-        st.warning(f"Couldn't load products from Sheet: {e}")
-        return
-
-    # Aggregate once; reuse for both the top-level metrics and the status grid.
-    status_counts: dict[str, int] = {}
-    total_revenue = 0.0
-    total_spend = 0.0
-    total_profit = 0.0
-
-    for p in products:
-        status_counts[p.test_status] = status_counts.get(p.test_status, 0) + 1
-        total_revenue += float(p.revenue or 0)
-        total_spend += float(p.spend or 0)
-        total_profit += float(p.net_profit or 0)
-
-    st.markdown("### Research pipeline")
-    st.caption("Movanella / Google Ads side — keyword → sourcing → testing.")
-
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Total products",  len(products))
-    col2.metric("Active testing",  status_counts.get("testing", 0))
-    col3.metric("Winners",         status_counts.get("winner", 0))
-
-    overall_roas = round(total_revenue / total_spend, 2) if total_spend > 0 else 0
-    col4.metric("Overall ROAS",    f"{overall_roas:.2f}")
-    col5.metric("Net profit",      f"€{total_profit:,.2f}")
-
-    st.markdown("#### Products by status")
-    status_info = [
-        ("discovered",     "Discovered",      "🔍"),
-        ("sourcing",       "Awaiting agent",  "📦"),
-        ("ready_to_test",  "Ready to test",   "🚀"),
-        ("testing",        "Testing",         "🧪"),
-        ("winner",         "Winners",         "🏆"),
-        ("killed",         "Killed",          "💀"),
-        ("paused",         "Paused",          "⏸️"),
-        ("rejected",       "Rejected",        "❌"),
-    ]
-
-    cols = st.columns(4)
-    for i, (status, label, icon) in enumerate(status_info):
-        with cols[i % 4]:
-            st.metric(f"{icon} {label}", status_counts.get(status, 0))
-
-
-def _render_quick_actions(store) -> None:
-    """Shortcuts for common research/ads jobs. One-shot buttons."""
-    st.markdown("#### Quick actions")
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        if st.button("🔬 Discover products", use_container_width=True):
-            with st.spinner("Running product discovery…"):
-                from src.research.pipeline import ResearchPipeline
-                pipeline = ResearchPipeline(store)
-                stats = pipeline.run_for_all_countries()
-                added = sum(s.get("products_added_to_sourcing", 0) for s in stats)
-                st.success(f"Discovery complete — {added} new products found.")
-                st.rerun()
-
-    with col2:
-        if st.button("📊 Pull performance", use_container_width=True):
-            with st.spinner("Pulling performance data…"):
-                from src.scheduler.jobs import JobScheduler
-                scheduler = JobScheduler(store)
-                scheduler.job_pull_performance()
-                st.success("Performance data updated.")
-                st.rerun()
-
-    with col3:
-        if st.button("🤖 Run decisions", use_container_width=True):
-            with st.spinner("Running decision engine…"):
-                from src.decisions.engine import DecisionEngine
-                engine = DecisionEngine(store)
-                results = engine.evaluate_all_products()
-                st.success(f"Decision engine complete — {len(results)} actions taken.")
-                st.rerun()
-
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 def main() -> None:
     st.title("Blue Ocean Platform")
-    st.caption("Unified commerce cockpit — Movanella (Google) + Merivalo (Meta).")
+    st.caption("Commerce cockpit — pick a site, see what matters for it.")
 
-    # 1. Workflow picker is the primary CTA and always renders, even if the
-    #    Sheet is down. You should always be able to start a clone.
-    _render_workflow_picker()
+    # 1. Site picker — always the first thing. Cheap, works offline.
+    site = _site_picker()
+    st.markdown("")
+
+    # 2. Contextual hero. Different per site, but always a single primary CTA.
+    if site == "movanella":
+        _movanella_hero()
+    elif site == "merivalo":
+        _merivalo_hero()
+    else:
+        _all_sites_hero()
+
     st.markdown("---")
 
-    # 2. Research dashboard depends on the Sheet. Degrade gracefully if it's
+    # 3. Merivalo doesn't depend on the Sheet — render its pane and return
+    #    early. No sense trying to load the Sheet just to ignore it.
+    if site == "merivalo":
+        _render_merivalo_pipeline()
+        return
+
+    # 4. Everything below here needs the Sheet. Degrade gracefully if it's
     #    unreachable (credentials missing, quota exhausted, etc.) rather
     #    than blowing up the landing page.
     try:
@@ -203,9 +521,20 @@ def main() -> None:
         return
 
     _render_sidebar_notifications(store)
-    _render_research_dashboard(store)
+
+    if site == "movanella":
+        _render_movanella_pipeline(store)
+    else:  # "all"
+        # Show the Movanella pipeline (the only one with a Sheet) and then
+        # the Merivalo clone jobs inline, so "All sites" is genuinely both.
+        _render_movanella_pipeline(store)
+        st.markdown("---")
+        _render_merivalo_pipeline()
+
     st.markdown("---")
-    _render_quick_actions(store)
+    _render_blockers(store)
+    st.markdown("---")
+    _render_quick_actions(store, site)
 
 
 main()

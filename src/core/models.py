@@ -17,10 +17,17 @@ from typing import Optional
 # ---------------------------------------------------------------------------
 
 class ProductStatus(str, Enum):
-    """Product lifecycle statuses."""
+    """Product lifecycle statuses.
+
+    Note: there is no intermediate ``cost_received`` status. When the agent
+    fills in the landed cost, the economics gate runs immediately and the
+    product moves straight to READY_TO_TEST (pass) or REJECTED (fail). The
+    log stream still carries a ``cost_received`` ActionType for audit, but
+    a product never *lives* in that state.
+    """
     DISCOVERED = "discovered"
+    PENDING_MANUAL_REVIEW = "pending_manual_review"
     SOURCING = "sourcing"
-    COST_RECEIVED = "cost_received"
     READY_TO_TEST = "ready_to_test"
     LISTING_CREATED = "listing_created"
     TESTING = "testing"
@@ -101,6 +108,12 @@ class KeywordResearch:
     estimated_selling_price: float = 0.0
     google_shopping_url: str = ""  # link to Google Shopping results for this keyword
     competitor_pdp_url: str = ""  # top competitor's actual product page URL
+    # Thumbnail URL of the first Google Shopping result for this keyword.
+    # Sourced from SerpAPI's `shopping_results[0].thumbnail` so we always
+    # have a visual even when AliExpress doesn't match — the keyword
+    # must have passed the competition filter to reach this field, so
+    # there's guaranteed to be a Shopping result.
+    competitor_thumbnail_url: str = ""
     aliexpress_url: str = ""
     aliexpress_price: float = 0.0
     aliexpress_rating: float = 0.0
@@ -111,6 +124,11 @@ class KeywordResearch:
     aliexpress_top3_json: str = ""
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     notes: str = ""
+    # Inbox decision state. Empty / "active" = needs a decision; "archived"
+    # = human said skip; "sent_to_sourcing" = promoted into a Product row.
+    # Used by the Research-page keyword inbox to cleanly separate open
+    # decisions from already-handled ones without deleting any history.
+    status: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -148,6 +166,13 @@ class Product:
     aliexpress_orders: int = 0
     aliexpress_image_urls: str = ""  # comma-separated
     aliexpress_top3_json: str = ""   # JSON string with top 3 listings
+    # Diagnostics for the AliExpress match — which feed we found it in,
+    # which pass/strategy picked it, and the title that was used as the
+    # needle. JSON-encoded so we can extend the schema without migrating
+    # the sheet. Useful when auditing "why did this keyword pick that
+    # weird product", especially since the DS feed coverage is structural
+    # (bestsellers only) and false-positive-prone.
+    aliexpress_match_meta_json: str = ""
 
     # Pricing
     selling_price: float = 0.0
@@ -200,6 +225,12 @@ class Product:
 
     # Request real photos flag
     request_real_photos: bool = False
+
+    # Free-form notes carried through the pipeline — set by the research
+    # pipeline (AliExpress match rationale), the agent (sourcing context),
+    # or the Manual Review form (whatever the human wrote). Persisted to
+    # the Products sheet so nothing gets silently dropped.
+    notes: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
