@@ -292,64 +292,47 @@ def main():
     else:
         active.sort(key=lambda k: k.created_at, reverse=True)
 
-    # ----- KPI strips (two groups, two sheets) ----------------------------
-    # The page surfaces counts from two different sheets:
-    #   1. KeywordResearch — ideas still in the research/triage stage.
-    #   2. Products        — things already promoted and living their
-    #                        lifecycle (sourcing → testing → ...).
-    # Splitting them into two labelled blocks stops people from summing
-    # all three-plus KPIs and getting frustrated that the total doesn't
-    # equal any single sheet's row count. Each block says which sheet it
-    # reads from; each metric has a hover tooltip with the exact filter.
+    # ----- KPI strip — only the two actionable numbers -------------------
+    # Earlier iterations showed In Inbox + Archived + Promoted + In Sourcing
+    # which (a) mixed two sheets (KeywordResearch and Products) in one row
+    # and (b) surfaced `Promoted` (keywords sent via Discover) which omits
+    # manually-added products — so it was silently wrong by the manual-add
+    # count. Both of those caused "why don't the numbers add up" confusion.
+    #
+    # Strip it to just the two numbers the user acts on:
+    #   🗂 In inbox   — keywords waiting for yes/no (KeywordResearch)
+    #   ✅ In Sourcing — products waiting on the agent (Products)
+    # Archived and Promoted are still available as collapsed expanders
+    # further down the page — they're audit info, not action info.
     sourcing_products = store.get_products(
         country=country if country != "All" else None,
         status="sourcing",
     )
 
-    # --- Group 1: Keyword research (KeywordResearch sheet) ----------------
-    st.markdown("**📋 Keyword research** — ideas from Discover at various decision points")
-    k1, k2, k3 = st.columns(3)
-    with k1:
+    # --- Keyword research (KeywordResearch sheet) -------------------------
+    st.markdown("**📋 Keyword research** — ideas waiting for your yes/no")
+    col_inbox, _ = st.columns([1, 2])
+    with col_inbox:
         st.metric(
             "🗂 In inbox",
             len(active),
             help=(
-                "Keyword ideas waiting for your yes/no. "
-                "KeywordResearch sheet · status is blank or `active`."
-            ),
-        )
-    with k2:
-        st.metric(
-            "📦 Archived",
-            len(archived),
-            help=(
-                "Keywords you manually archived (rejected). "
-                "KeywordResearch sheet · status = `archived`."
-            ),
-        )
-    with k3:
-        st.metric(
-            "📤 Promoted",
-            len(sent),
-            help=(
-                "Keywords you clicked Send to sourcing on. Each one became "
-                "a product — see the 'In Sourcing' counter below for the "
-                "current product state (some may already be testing/killed). "
-                "KeywordResearch sheet · status = `sent_to_sourcing`."
+                "Keyword ideas from the Discover pipeline waiting for "
+                "your yes/no. KeywordResearch sheet · status is blank "
+                "or `active`."
             ),
         )
 
-    # Small gap then the Products block.
     st.write("")
 
-    # --- Group 2: Sourcing queue (Products sheet + Agent Tasks sheet) -----
+    # --- Sourcing queue (Products + Agent Tasks sheets) -------------------
     st.markdown(
         "**📦 Sourcing queue** — products currently with the sourcing agent"
     )
 
     # Any result message from a previous sync click, carried across the
-    # `st.rerun()` that refreshes the KPI strip. Shown above the metric
-    # so it's obviously tied to the sync action.
+    # `st.rerun()` that refreshes the counter. Shown above the metric so
+    # it's obviously tied to the sync action.
     if "res_sync_result" in st.session_state:
         msg, kind = st.session_state.pop("res_sync_result")
         if kind == "success":
@@ -368,8 +351,7 @@ def main():
             len(sourcing_products),
             help=(
                 "Products currently waiting on the agent for a landed "
-                "cost. Products sheet · test_status = `sourcing`. "
-                "Matches the row count on the Agent Tasks sheet."
+                "cost. Products sheet · test_status = `sourcing`."
             ),
         )
     with col_action:
@@ -427,6 +409,20 @@ def main():
                             "error",
                         )
                 st.rerun()
+
+    # Why the Google Sheet row count can be higher than "In Sourcing":
+    # Agent Tasks keeps both `pending` rows (still with the agent) and
+    # `processed` rows (agent already filled in landed_cost and the
+    # system moved the product on to testing/killed). "In Sourcing"
+    # only counts the first group. Spell this out inline so the user
+    # doesn't have to reverse-engineer it.
+    st.caption(
+        "ℹ️ The **Agent Tasks** Google Sheet can have **more** rows than "
+        "this number. `processed` rows stay in the sheet as history after "
+        "the agent prices them — those products have already moved on to "
+        "*testing* or *killed* (see the Products page). `In Sourcing` only "
+        "counts rows still `pending`."
+    )
 
     # ----- Inbox table ----------------------------------------------------
     st.subheader("Inbox")
