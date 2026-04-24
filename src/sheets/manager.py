@@ -671,6 +671,13 @@ class GoogleSheetsStore(DataStore):
         (was N append_row calls = N API hits). For a 71-product pipeline run
         this drops from ~142 API calls to 2.
         """
+        # Housekeeping first: drop any legacy `processed` rows so the
+        # sheet stays a strict "pending only" work queue. This is
+        # typically a no-op (mark_agent_task_processed now deletes
+        # rows outright), but catches anything from before that change
+        # or rows a user manually flagged processed on the sheet.
+        self._purge_processed_agent_tasks()
+
         sourcing_products = self.get_products(status=ProductStatus.SOURCING.value)
         if not sourcing_products:
             return 0
@@ -720,12 +727,73 @@ class GoogleSheetsStore(DataStore):
         return completed
 
     def mark_agent_task_processed(self, product_id: str) -> None:
-        """Mark an agent task as processed after the system picks up the cost."""
-        self._update_row(
-            TAB_AGENT_TASKS, AGENT_TASK_HEADERS,
-            "product_id", product_id,
-            {"status": "processed"}
-        )
+        """Remove the Agent Tasks row after the system has consumed its cost.
+
+        Previously this flipped the status column to `processed` as an
+        audit flag, which left the Agent Tasks sheet with a growing tail
+        of finished rows. That made the sheet's row count diverge from
+        the dashboard's "In Sourcing" counter (sheet counted history,
+        dashboard counted active work) and users couldn't tell at a
+        glance what the agent still had to do.
+
+        The row is now deleted outright. Agent Tasks is strictly a
+        "work still to do" queue. All the audit info already lives
+        elsewhere — the Products sheet keeps the landed_cost and the
+        status transitions, and the Action Log records the event — so
+        we aren't losing anything by dropping the Agent Tasks row.
+
+        Method name kept (for the scheduler call site) even though the
+        behaviour is now closer to `remove_agent_task_on_processing`;
+        renaming would be a larger ripple and the name still describes
+        the *outcome* ("this product is processed"), just not the
+        mechanism.
+        """
+        ws = self._get_or_create_worksheet(TAB_AGENT_TASKS, AGENT_TASK_HEADERS)
+        row_idx = self._find_row_index(ws, "product_id", product_id)
+        if not row_idx:
+            logger.debug(
+                "mark_agent_task_processed: no Agent Tasks row for %s "
+                "(already removed or never synced)",
+                product_id,
+            )
+            return
+        ws.delete_rows(row_idx)
+        logger.info("Removed %s from Agent Tasks after processing", product_id)
+
+    def _purge_processed_agent_tasks(self) -> int:
+        """Drop any Agent Tasks rows whose status is `processed`.
+
+        This is a safety-net for legacy rows left over from before
+        `mark_agent_task_processed` started deleting rows outright.
+        Current behaviour never writes `processed` anymore, so in
+        steady state this does nothing — but the first run after the
+        delete-on-process change needs it to clean up existing tails,
+        and it also handles the case where a user manually types
+        `processed` into the status cell on the sheet.
+
+        Returns the number of rows deleted. Iterates bottom-up so the
+        1-indexed row numbers returned by `_get_all_records` stay
+        valid as we delete.
+        """
+        ws = self._get_or_create_worksheet(TAB_AGENT_TASKS, AGENT_TASK_HEADERS)
+        records = self._get_all_records(TAB_AGENT_TASKS, AGENT_TASK_HEADERS)
+        # `get_all_records` skips the header row, so list index i maps
+        # to sheet row i+2 (header is row 1, data starts at row 2,
+        # indices are 0-based).
+        to_delete = [
+            i + 2
+            for i, r in enumerate(records)
+            if str(r.get("status", "")).strip().lower() == "processed"
+        ]
+        # Delete bottom-up so earlier row indices don't shift.
+        for row_idx in reversed(to_delete):
+            ws.delete_rows(row_idx)
+        if to_delete:
+            logger.info(
+                "Purged %d legacy `processed` row(s) from Agent Tasks",
+                len(to_delete),
+            )
+        return len(to_delete)
 
     def update_agent_task(self, product_id: str, updates: dict) -> None:
         """Update arbitrary fields on an existing Agent Tasks row.

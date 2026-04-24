@@ -410,18 +410,14 @@ def main():
                         )
                 st.rerun()
 
-    # Why the Google Sheet row count can be higher than "In Sourcing":
-    # Agent Tasks keeps both `pending` rows (still with the agent) and
-    # `processed` rows (agent already filled in landed_cost and the
-    # system moved the product on to testing/killed). "In Sourcing"
-    # only counts the first group. Spell this out inline so the user
-    # doesn't have to reverse-engineer it.
+    # The Agent Tasks sheet now always matches this count one-to-one —
+    # `mark_agent_task_processed` deletes the row as soon as the cost
+    # is consumed, so there's no longer a tail of `processed` history
+    # rows to explain away. A short reassurance caption is enough.
     st.caption(
-        "ℹ️ The **Agent Tasks** Google Sheet can have **more** rows than "
-        "this number. `processed` rows stay in the sheet as history after "
-        "the agent prices them — those products have already moved on to "
-        "*testing* or *killed* (see the Products page). `In Sourcing` only "
-        "counts rows still `pending`."
+        "The **Agent Tasks** Google Sheet row count matches this "
+        "number exactly — rows are removed automatically when the "
+        "agent's cost is consumed."
     )
 
     # ----- Inbox table ----------------------------------------------------
