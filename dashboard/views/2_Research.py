@@ -293,11 +293,20 @@ def main():
         active.sort(key=lambda k: k.created_at, reverse=True)
 
     # ----- KPI strip ------------------------------------------------------
+    # "In Sourcing" counts PRODUCTS with test_status=sourcing, not keywords
+    # with status=sent_to_sourcing. Products added manually via the ➕ button
+    # skip the keyword layer entirely, so the keyword-based counter
+    # under-reports by exactly the manual-add count. The Products-based
+    # counter matches what the Sourcing page and the Agent Tasks sheet show.
+    sourcing_products = store.get_products(
+        country=country if country != "All" else None,
+        status="sourcing",
+    )
     k1, k2, k3 = st.columns(3)
     with k1:
         st.metric("🗂 In inbox", len(active))
     with k2:
-        st.metric("✅ Sent to sourcing", len(sent))
+        st.metric("✅ In Sourcing", len(sourcing_products))
     with k3:
         st.metric("📦 Archived", len(archived))
 
@@ -320,11 +329,18 @@ def main():
         else:
             st.caption("Nothing archived yet.")
 
-    with st.expander(f"✅ Already sent to sourcing ({len(sent)})"):
+    # Keyword-level audit trail — only tracks the Discover → Sourcing path.
+    # Manually-added products don't appear here (they never had a keyword row)
+    # which is why this count can be lower than the "In Sourcing" KPI above.
+    with st.expander(f"✅ Discovered → sourcing ({len(sent)})"):
         if sent:
             _render_light_table(sent, action_label=None, key_prefix="sent")
         else:
-            st.caption("No keywords have been sent to sourcing yet.")
+            st.caption(
+                "No keywords have been promoted to sourcing via Discover yet. "
+                "(Manually-added products aren't tracked here — see the "
+                "Sourcing page for the full list.)"
+            )
 
     # ----- Rejected keywords ("why did these fail?") ----------------------
     # Gives the human transparency on every keyword the discover pipeline
