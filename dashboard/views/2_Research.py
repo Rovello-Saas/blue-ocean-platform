@@ -292,33 +292,64 @@ def main():
     else:
         active.sort(key=lambda k: k.created_at, reverse=True)
 
-    # ----- KPI strip ------------------------------------------------------
-    # "In Sourcing" counts PRODUCTS with test_status=sourcing, not keywords
-    # with status=sent_to_sourcing. Products added manually via the ➕ button
-    # skip the keyword layer entirely, so the keyword-based counter
-    # under-reports by exactly the manual-add count. The Products-based
-    # counter matches what the Sourcing page and the Agent Tasks sheet show.
+    # ----- KPI strips (two groups, two sheets) ----------------------------
+    # The page surfaces counts from two different sheets:
+    #   1. KeywordResearch — ideas still in the research/triage stage.
+    #   2. Products        — things already promoted and living their
+    #                        lifecycle (sourcing → testing → ...).
+    # Splitting them into two labelled blocks stops people from summing
+    # all three-plus KPIs and getting frustrated that the total doesn't
+    # equal any single sheet's row count. Each block says which sheet it
+    # reads from; each metric has a hover tooltip with the exact filter.
     sourcing_products = store.get_products(
         country=country if country != "All" else None,
         status="sourcing",
     )
+
+    # --- Group 1: Keyword research (KeywordResearch sheet) ----------------
+    st.markdown("**📋 Keyword research** — ideas from Discover at various decision points")
     k1, k2, k3 = st.columns(3)
     with k1:
-        st.metric("🗂 In inbox", len(active))
+        st.metric(
+            "🗂 In inbox",
+            len(active),
+            help=(
+                "Keyword ideas waiting for your yes/no. "
+                "KeywordResearch sheet · status is blank or `active`."
+            ),
+        )
     with k2:
-        st.metric("✅ In Sourcing", len(sourcing_products))
+        st.metric(
+            "📦 Archived",
+            len(archived),
+            help=(
+                "Keywords you manually archived (rejected). "
+                "KeywordResearch sheet · status = `archived`."
+            ),
+        )
     with k3:
-        st.metric("📦 Archived", len(archived))
+        st.metric(
+            "📤 Promoted",
+            len(sent),
+            help=(
+                "Keywords you clicked Send to sourcing on. Each one became "
+                "a product — see the 'In Sourcing' counter below for the "
+                "current product state (some may already be testing/killed). "
+                "KeywordResearch sheet · status = `sent_to_sourcing`."
+            ),
+        )
 
-    # ----- Sync-with-agent-sheet button -----------------------------------
-    # Streamlit Cloud doesn't run the scheduler daemon, so `pending` rows on
-    # Agent Tasks never flip to `processed` automatically after the agent
-    # fills in `landed_cost`. This button kicks `job_poll_agent_costs`
-    # on-demand so the user doesn't have to hop to the Logs page.
-    #
-    # The success/info message survives the rerun via session_state — we
-    # need to rerun so the KPI strip above reflects the new Products
-    # state (sourcing → testing/killed after margin math lands).
+    # Small gap then the Products block.
+    st.write("")
+
+    # --- Group 2: Sourcing queue (Products sheet + Agent Tasks sheet) -----
+    st.markdown(
+        "**📦 Sourcing queue** — products currently with the sourcing agent"
+    )
+
+    # Any result message from a previous sync click, carried across the
+    # `st.rerun()` that refreshes the KPI strip. Shown above the metric
+    # so it's obviously tied to the sync action.
     if "res_sync_result" in st.session_state:
         msg, kind = st.session_state.pop("res_sync_result")
         if kind == "success":
@@ -328,49 +359,74 @@ def main():
         elif kind == "error":
             st.error(msg)
 
-    if sourcing_products:
-        if st.button(
-            "🔄 Sync with agent sheet",
+    # Metric on the left, sync button on the right — the button is the
+    # call-to-action specifically for this metric.
+    col_metric, col_action = st.columns([1, 2])
+    with col_metric:
+        st.metric(
+            "✅ In Sourcing",
+            len(sourcing_products),
             help=(
-                "Pick up any landed_cost values the agent has filled in "
-                "on the Agent Tasks sheet. Products with costs move on to "
-                "testing (or killed) and their Agent Tasks row flips from "
-                "`pending` to `processed`."
+                "Products currently waiting on the agent for a landed "
+                "cost. Products sheet · test_status = `sourcing`. "
+                "Matches the row count on the Agent Tasks sheet."
             ),
-            key="res_sync_agent_costs",
-        ):
-            with st.spinner("Checking Agent Tasks sheet…"):
-                try:
-                    # Count awaiting-cost products *before* the job runs —
-                    # the job itself doesn't return anything, so this is
-                    # the only way to tell the user what it did.
-                    ready_before = store.get_products_awaiting_cost()
-                    from src.scheduler.jobs import JobScheduler
-                    scheduler = JobScheduler(store)
-                    scheduler.job_poll_agent_costs()
-                    n = len(ready_before)
-                    if n > 0:
-                        word = "product" if n == 1 else "products"
+        )
+    with col_action:
+        # Spacer so the button sits at roughly the metric baseline.
+        st.write("")
+        if sourcing_products:
+            # Streamlit Cloud doesn't run the scheduler daemon, so `pending`
+            # rows on Agent Tasks never flip to `processed` automatically
+            # after the agent fills in `landed_cost`. This button kicks
+            # `job_poll_agent_costs` on-demand so the user doesn't have to
+            # hop to the Logs page. The session_state flag + st.rerun()
+            # pattern is there so the success message survives the rerun
+            # that refreshes the counter.
+            if st.button(
+                "🔄 Sync with agent sheet",
+                help=(
+                    "Pick up any landed_cost values the agent has filled in "
+                    "on the Agent Tasks sheet. Products with costs move on "
+                    "to testing (or killed) and their Agent Tasks row flips "
+                    "from `pending` to `processed`."
+                ),
+                key="res_sync_agent_costs",
+            ):
+                with st.spinner("Checking Agent Tasks sheet…"):
+                    try:
+                        # Count awaiting-cost products *before* the job
+                        # runs — the job doesn't return anything, so this
+                        # is the only way to tell the user what it did.
+                        ready_before = store.get_products_awaiting_cost()
+                        from src.scheduler.jobs import JobScheduler
+                        scheduler = JobScheduler(store)
+                        scheduler.job_poll_agent_costs()
+                        n = len(ready_before)
+                        if n > 0:
+                            word = "product" if n == 1 else "products"
+                            st.session_state["res_sync_result"] = (
+                                f"✅ Processed {n} {word} with new landed "
+                                "costs — they've moved on to testing/killed "
+                                "and the Agent Tasks rows are now marked "
+                                "`processed`.",
+                                "success",
+                            )
+                        else:
+                            st.session_state["res_sync_result"] = (
+                                "No new landed costs found. The agent "
+                                "hasn't filled in any `landed_cost` cells "
+                                "yet — fill them in on the sheet and click "
+                                "this again.",
+                                "info",
+                            )
+                    except Exception as e:
+                        logger.exception("Agent cost sync failed")
                         st.session_state["res_sync_result"] = (
-                            f"✅ Processed {n} {word} with new landed costs — "
-                            "they've moved on to testing/killed and the "
-                            "Agent Tasks rows are now marked `processed`.",
-                            "success",
+                            f"Sync failed: {type(e).__name__}: {e}",
+                            "error",
                         )
-                    else:
-                        st.session_state["res_sync_result"] = (
-                            "No new landed costs found. The agent hasn't "
-                            "filled in any `landed_cost` cells yet — fill "
-                            "them in on the sheet and click this again.",
-                            "info",
-                        )
-                except Exception as e:
-                    logger.exception("Agent cost sync failed")
-                    st.session_state["res_sync_result"] = (
-                        f"Sync failed: {type(e).__name__}: {e}",
-                        "error",
-                    )
-            st.rerun()
+                st.rerun()
 
     # ----- Inbox table ----------------------------------------------------
     st.subheader("Inbox")
@@ -394,15 +450,16 @@ def main():
     # Keyword-level audit trail — only tracks the Discover → Sourcing path.
     # Manually-added products don't appear here (they never had a keyword row)
     # which is why this count can be lower than the "In Sourcing" KPI above.
-    with st.expander(f"✅ Discovered → sourcing ({len(sent)})"):
+    with st.expander(f"📤 Promoted keywords ({len(sent)})"):
+        st.caption(
+            "Keywords you've clicked Send to sourcing on. Each one became "
+            "a product on the Products sheet — some may already be testing "
+            "or killed. Manually-added products aren't listed here."
+        )
         if sent:
             _render_light_table(sent, action_label=None, key_prefix="sent")
         else:
-            st.caption(
-                "No keywords have been promoted to sourcing via Discover yet. "
-                "(Manually-added products aren't tracked here — see the "
-                "Sourcing page for the full list.)"
-            )
+            st.caption("No keywords have been promoted via Discover yet.")
 
     # ----- Rejected keywords ("why did these fail?") ----------------------
     # Gives the human transparency on every keyword the discover pipeline
