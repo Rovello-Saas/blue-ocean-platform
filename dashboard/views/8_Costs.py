@@ -301,6 +301,7 @@ def main():
 
     # ---- Recent runs -----------------------------------------------------
     st.subheader("Recent runs")
+    st.caption("💡 Click a row to see the per-model breakdown for that run.")
     by_run = (
         df.groupby(["run_id", "run_type"], as_index=False)
           .agg(
@@ -313,10 +314,122 @@ def main():
     )
     by_run_display = by_run.copy()
     by_run_display["started"] = by_run_display["started"].dt.strftime("%Y-%m-%d %H:%M")
-    by_run_display["cost_usd"] = by_run_display["cost_usd"].map(lambda v: f"${v:.4f}")
-    by_run_display = by_run_display[["started", "run_type", "run_id", "calls", "cost_usd"]]
-    by_run_display.columns = ["Started", "Type", "Run ID", "Calls", "Cost"]
-    st.dataframe(by_run_display, hide_index=True, use_container_width=True)
+    by_run_display["cost_usd_fmt"] = by_run_display["cost_usd"].map(lambda v: f"${v:.4f}")
+    # Keep run_id on the displayed frame in a known column order; we look
+    # it back up by positional index when the user clicks a row.
+    by_run_display_render = by_run_display[
+        ["started", "run_type", "run_id", "calls", "cost_usd_fmt"]
+    ].rename(columns={
+        "started": "Started",
+        "run_type": "Type",
+        "run_id": "Run ID",
+        "calls": "Calls",
+        "cost_usd_fmt": "Cost",
+    })
+
+    # selection_mode="single-row" + on_select="rerun" is Streamlit's
+    # standard way to get per-row interactivity. We reset the frame's
+    # index first so the selection indices line up 0..N-1 with the
+    # displayed rows (otherwise the iloc lookup below is off).
+    by_run_display_render = by_run_display_render.reset_index(drop=True)
+    run_id_by_position = by_run_display.reset_index(drop=True)["run_id"]
+
+    event = st.dataframe(
+        by_run_display_render,
+        hide_index=True,
+        use_container_width=True,
+        selection_mode="single-row",
+        on_select="rerun",
+        key="cost_recent_runs_table",
+    )
+
+    selected_rows = []
+    if event is not None:
+        # The event object exposes .selection.rows (Streamlit ≥1.35).
+        # Defensive: older versions / degraded render may return None.
+        try:
+            selected_rows = list(event.selection.rows)
+        except AttributeError:
+            selected_rows = []
+
+    if selected_rows:
+        sel_idx = selected_rows[0]
+        selected_run_id = str(run_id_by_position.iloc[sel_idx])
+        run_rows = df[df["run_id"] == selected_run_id]
+
+        if run_rows.empty:
+            st.info(f"No cost records found for run `{selected_run_id}`.")
+        else:
+            # Per-provider rollup for this run
+            by_prov = (
+                run_rows.groupby("provider", as_index=False)
+                .agg(
+                    calls=("cost_usd", "size"),
+                    cost_usd=("cost_usd", "sum"),
+                    any_estimated=("estimated", "any"),
+                )
+                .sort_values("cost_usd", ascending=False)
+            )
+            run_total = float(by_prov["cost_usd"].sum())
+            # Per-endpoint rollup (useful when one provider hits multiple
+            # endpoints — e.g. anthropic with sonnet + haiku, or dataforseo
+            # with both volume and SERP endpoints).
+            by_ep_run = (
+                run_rows.groupby(["provider", "endpoint"], as_index=False)
+                .agg(
+                    calls=("cost_usd", "size"),
+                    cost_usd=("cost_usd", "sum"),
+                    any_estimated=("estimated", "any"),
+                )
+                .sort_values("cost_usd", ascending=False)
+            )
+
+            st.markdown(
+                f"#### Breakdown for `{selected_run_id}` — "
+                f"${run_total:.4f} across {int(by_prov['calls'].sum())} calls"
+            )
+
+            col_a, col_b = st.columns(2)
+
+            with col_a:
+                st.caption("**By provider**")
+                prov_display = by_prov.copy()
+                prov_display["share"] = (
+                    prov_display["cost_usd"] / max(run_total, 1e-12) * 100
+                ).map(lambda p: f"{p:.0f}%")
+                prov_display["cost_usd"] = prov_display["cost_usd"].map(lambda v: f"${v:.4f}")
+                prov_display["estimated"] = prov_display["any_estimated"].map(
+                    lambda b: "~" if b else ""
+                )
+                prov_display = prov_display[
+                    ["provider", "calls", "cost_usd", "share", "estimated"]
+                ]
+                prov_display.columns = ["Provider", "Calls", "Cost", "Share", "Est."]
+                st.dataframe(prov_display, hide_index=True, use_container_width=True)
+
+            with col_b:
+                st.caption("**By endpoint**")
+                ep_display = by_ep_run.copy()
+                ep_display["cost_usd"] = ep_display["cost_usd"].map(lambda v: f"${v:.4f}")
+                ep_display["estimated"] = ep_display["any_estimated"].map(
+                    lambda b: "~" if b else ""
+                )
+                ep_display = ep_display[
+                    ["provider", "endpoint", "calls", "cost_usd", "estimated"]
+                ]
+                ep_display.columns = ["Provider", "Endpoint", "Calls", "Cost", "Est."]
+                st.dataframe(ep_display, hide_index=True, use_container_width=True)
+
+            # Collapsed raw-calls view for the curious: full per-call log.
+            with st.expander(f"🔬 See all {len(run_rows)} individual calls", expanded=False):
+                raw = run_rows[
+                    ["timestamp", "provider", "endpoint", "units", "cost_usd", "context", "estimated"]
+                ].copy()
+                raw = raw.sort_values("timestamp")
+                raw["cost_usd"] = raw["cost_usd"].map(lambda v: f"${v:.6f}")
+                raw["estimated"] = raw["estimated"].map(lambda b: "~" if b else "")
+                raw.columns = ["Timestamp", "Provider", "Endpoint", "Units", "Cost", "Context", "Est."]
+                st.dataframe(raw, hide_index=True, use_container_width=True)
 
     # ---- Footer / diagnostics -------------------------------------------
     with st.expander("Data sources", expanded=False):
