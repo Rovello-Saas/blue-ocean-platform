@@ -81,7 +81,16 @@ class RunState:
     all_stats: list[dict] = field(default_factory=list)
     # Aggregates — filled at completion so the dashboard can render the cost
     # banner without re-walking all_stats.
-    total_added: int = 0
+    #
+    # total_added = everything that landed on the sheet this run — BOTH
+    # the matched lane (Products, status=sourcing) AND the unmatched lane
+    # (Research Inbox keyword-only rows for manual AliExpress lookup).
+    # Split fields preserved so the banner can show "N to Sourcing + M to
+    # Inbox" instead of the old misleading "X new keywords added" that
+    # only counted matched products.
+    total_added: int = 0                # matched + inbox (display total)
+    total_added_sourcing: int = 0       # Products with status=sourcing
+    total_added_inbox: int = 0          # KeywordResearch-only rows (manual review queue)
     total_cost_usd: float = 0.0
     error: Optional[str] = None
 
@@ -173,15 +182,25 @@ def start_discovery(store, config, country_codes: list[str]) -> str:
                 added = int(stats.get("products_added_to_sourcing", 0) or 0)
                 logger.info("[bg run %s] %s done — %d added", run_id, code, added)
 
-            state.total_added = sum(
+            state.total_added_sourcing = sum(
                 int(s.get("products_added_to_sourcing", 0) or 0)
                 for s in state.all_stats
             )
+            state.total_added_inbox = sum(
+                int(s.get("keywords_written_to_inbox_only", 0) or 0)
+                for s in state.all_stats
+            )
+            # Legacy `total_added` now spans both lanes — it was previously
+            # matched-only, which silently under-reported runs where every
+            # surviving candidate failed AliExpress matching (and thus
+            # landed in the inbox instead of Sourcing).
+            state.total_added = state.total_added_sourcing + state.total_added_inbox
             state.total_cost_usd = sum(
                 float(s.get("cost_total_usd", 0) or 0) for s in state.all_stats
             )
             state.progress_msg = (
-                f"Done — {state.total_added} added across "
+                f"Done — {state.total_added_sourcing} to Sourcing, "
+                f"{state.total_added_inbox} to Inbox across "
                 f"{len(country_codes)} countr{'y' if len(country_codes) == 1 else 'ies'}"
             )
             state.status = "done"

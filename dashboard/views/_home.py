@@ -426,8 +426,17 @@ def _render_quick_actions(store, site: str) -> None:
                 from src.research.pipeline import ResearchPipeline
                 pipeline = ResearchPipeline(store)
                 stats = pipeline.run_for_all_countries()
-                added = sum(s.get("products_added_to_sourcing", 0) for s in stats)
-                st.success(f"Discovery complete — {added} new products found.")
+                # Count both lanes: matched Products AND unmatched inbox
+                # rows. Matched-only was misleading when every survivor
+                # went to the inbox for manual review.
+                sourcing = sum(s.get("products_added_to_sourcing", 0) for s in stats)
+                inbox = sum(s.get("keywords_written_to_inbox_only", 0) for s in stats)
+                if sourcing + inbox == 0:
+                    st.success("Discovery complete — no new keywords made it through the filters.")
+                else:
+                    st.success(
+                        f"Discovery complete — {sourcing} to Sourcing, {inbox} to Inbox."
+                    )
                 st.rerun()
 
     with col2:

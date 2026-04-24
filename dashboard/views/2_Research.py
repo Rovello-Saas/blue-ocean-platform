@@ -1163,17 +1163,42 @@ def _render_discovery_status_panel():
         return
 
     # status == "done"
-    st.success(
-        f"✅ Discovery complete — {state.total_added} new keyword(s) added "
-        f"across {len(state.country_codes)} countr{'y' if len(state.country_codes) == 1 else 'ies'} "
-        f"in {int(state.elapsed_seconds)}s."
-    )
+    #
+    # The banner reports BOTH lanes explicitly:
+    #   - Sourcing: matched on AliExpress → Products (ready for the agent)
+    #   - Inbox:    unmatched → KeywordResearch (manual AliExpress lookup)
+    #
+    # Old version only showed `total_added` = matched lane only, which made
+    # a run that wrote 6 inbox rows look like "0 new keywords added" —
+    # actively misleading. The user was right to call this out.
+    country_word = "y" if len(state.country_codes) == 1 else "ies"
+    sourcing = state.total_added_sourcing
+    inbox = state.total_added_inbox
+    if sourcing + inbox == 0:
+        # Pipeline completed cleanly but nothing survived all filters.
+        st.success(
+            f"✅ Discovery complete in {int(state.elapsed_seconds)}s "
+            f"across {len(state.country_codes)} countr{country_word} — "
+            "no new keywords made it through the filters."
+        )
+    else:
+        # Show both lanes so "0 to Sourcing but 6 to Inbox" is visible.
+        sourcing_word = "product" if sourcing == 1 else "products"
+        inbox_word = "keyword" if inbox == 1 else "keywords"
+        st.success(
+            f"✅ Discovery complete in {int(state.elapsed_seconds)}s "
+            f"across {len(state.country_codes)} countr{country_word}:\n\n"
+            f"- **{sourcing}** {sourcing_word} added to **Sourcing** "
+            f"(matched on AliExpress)\n"
+            f"- **{inbox}** {inbox_word} added to **Research Inbox** "
+            f"(need manual AliExpress lookup)"
+        )
     _render_funnel_block(state.all_stats)
     _render_cost_block(state.all_stats)
-    if state.total_added == 0:
+    if sourcing + inbox == 0:
         st.warning(
-            "0 keywords added. Check **Logs** for the per-stage funnel — "
-            "the pipeline now names the biggest killer stage explicitly."
+            "Nothing made it to the sheet. Check the funnel above for the "
+            "biggest killer stage, or the **Logs** view for full detail."
         )
     # Clear the active-run pointer so next page load doesn't re-render the
     # same completed run. Results are still accessible via the Keywords
