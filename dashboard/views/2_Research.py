@@ -310,6 +310,68 @@ def main():
     with k3:
         st.metric("📦 Archived", len(archived))
 
+    # ----- Sync-with-agent-sheet button -----------------------------------
+    # Streamlit Cloud doesn't run the scheduler daemon, so `pending` rows on
+    # Agent Tasks never flip to `processed` automatically after the agent
+    # fills in `landed_cost`. This button kicks `job_poll_agent_costs`
+    # on-demand so the user doesn't have to hop to the Logs page.
+    #
+    # The success/info message survives the rerun via session_state — we
+    # need to rerun so the KPI strip above reflects the new Products
+    # state (sourcing → testing/killed after margin math lands).
+    if "res_sync_result" in st.session_state:
+        msg, kind = st.session_state.pop("res_sync_result")
+        if kind == "success":
+            st.success(msg)
+        elif kind == "info":
+            st.info(msg)
+        elif kind == "error":
+            st.error(msg)
+
+    if sourcing_products:
+        if st.button(
+            "🔄 Sync with agent sheet",
+            help=(
+                "Pick up any landed_cost values the agent has filled in "
+                "on the Agent Tasks sheet. Products with costs move on to "
+                "testing (or killed) and their Agent Tasks row flips from "
+                "`pending` to `processed`."
+            ),
+            key="res_sync_agent_costs",
+        ):
+            with st.spinner("Checking Agent Tasks sheet…"):
+                try:
+                    # Count awaiting-cost products *before* the job runs —
+                    # the job itself doesn't return anything, so this is
+                    # the only way to tell the user what it did.
+                    ready_before = store.get_products_awaiting_cost()
+                    from src.scheduler.jobs import JobScheduler
+                    scheduler = JobScheduler(store)
+                    scheduler.job_poll_agent_costs()
+                    n = len(ready_before)
+                    if n > 0:
+                        word = "product" if n == 1 else "products"
+                        st.session_state["res_sync_result"] = (
+                            f"✅ Processed {n} {word} with new landed costs — "
+                            "they've moved on to testing/killed and the "
+                            "Agent Tasks rows are now marked `processed`.",
+                            "success",
+                        )
+                    else:
+                        st.session_state["res_sync_result"] = (
+                            "No new landed costs found. The agent hasn't "
+                            "filled in any `landed_cost` cells yet — fill "
+                            "them in on the sheet and click this again.",
+                            "info",
+                        )
+                except Exception as e:
+                    logger.exception("Agent cost sync failed")
+                    st.session_state["res_sync_result"] = (
+                        f"Sync failed: {type(e).__name__}: {e}",
+                        "error",
+                    )
+            st.rerun()
+
     # ----- Inbox table ----------------------------------------------------
     st.subheader("Inbox")
     if not active:
