@@ -1265,6 +1265,10 @@ def _render_funnel_block(all_stats):
     matched     = _sum("products_matched")
     capped_out  = _sum("products_capped_out")
     written     = _sum("products_added_to_sourcing")
+    # Any per-country stat flipping the soft-warn flag counts the whole run.
+    soft_warn_triggered = any(
+        bool(s.get("products_soft_warn_triggered")) for s in all_stats
+    )
 
     # Early-out: the pipeline never produced anything this run — the
     # funnel would just be a column of zeros. Don't bother.
@@ -1298,8 +1302,13 @@ def _render_funnel_block(all_stats):
         {"Stage": "Passed competition",        "Surviving": comp_pass,        "Dropped here": _drop_count("competition")},
         {"Stage": "Passed price filter",    "Surviving": price_pass,  "Dropped here": _drop_count("price")},
         {"Stage": "Matched on AliExpress",  "Surviving": matched,     "Dropped here": max(price_pass - matched, 0)},
-        {"Stage": "Daily cap",              "Surviving": written,     "Dropped here": capped_out},
-        {"Stage": "Written to sheet",       "Surviving": written,     "Dropped here": 0},
+        # Final stage — "Written to Products". When the per-run cap is
+        # disabled (default as of 2026-04-24), `capped_out` is always 0
+        # and Surviving == Matched. When a non-zero cap is configured
+        # and fires, this row shows how many got dropped by the cap.
+        # The old separate "Written to sheet" tautology row was removed:
+        # it just restated Surviving with Dropped=0.
+        {"Stage": "Written to Products",    "Surviving": written,     "Dropped here": capped_out},
     ]
 
     st.subheader("Research funnel")
@@ -1308,6 +1317,19 @@ def _render_funnel_block(all_stats):
         "were still in play entering each stage; **Dropped here** is how "
         "many that stage killed."
     )
+    # Soft-warn banner: the pipeline sets this when a run promotes more
+    # products than `research.max_products_soft_warn` (default 25). The
+    # hard cap is disabled by default — we trust the filters — but a run
+    # producing 80+ products is almost always a filter regression, not a
+    # bumper crop. Surface it loudly without blocking the data.
+    if soft_warn_triggered:
+        st.warning(
+            f"⚠️ **Unusually large batch:** {written} products promoted to "
+            "sourcing in this run. Filters are doing their job so these "
+            "are all written, but sanity-check your thresholds "
+            "(volume / CPC / competition / price) — a batch this size is "
+            "often the first sign of a filter regression."
+        )
     import pandas as _pd
     funnel_df = _pd.DataFrame(rows)
     # Percent-of-start column helps eyeball which stages are the biggest killers.

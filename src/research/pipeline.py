@@ -100,7 +100,8 @@ class ResearchPipeline:
             "products_matched": 0,
             "keywords_passed_economics": 0,  # survivors of the per-product economics gate (max_allowed_cpc / min_net_margin)
             "keywords_pending_manual_review": 0,  # otherwise-valid keywords with no DS feed match — queued for manual AliExpress lookup
-            "products_capped_out": 0,      # dropped by max_products_per_run
+            "products_capped_out": 0,      # dropped by max_products_per_run (0 when cap disabled)
+            "products_soft_warn_triggered": False,  # True when write count exceeded max_products_soft_warn
             "products_added_to_sourcing": 0,
             "duplicates_skipped": 0,
             "dropped_keywords": [],
@@ -1087,6 +1088,25 @@ class ResearchPipeline:
             )
             stats["products_capped_out"] = len(dropped)
             products_to_write = kept
+
+        # Soft-warning: flag unusually large batches even when the hard cap
+        # is disabled. Replaces the silent "always drop to 5" behavior: we
+        # now trust the filters, but a run producing 80 products is almost
+        # always a symptom of a filter regression (thresholds loosened,
+        # strategy definitions drifted, DataForSEO returning junk volume).
+        # WARN-log so it shows up in the Logs view; stash in stats so the
+        # Research funnel UI can render a yellow banner.
+        soft_warn = int(self.config.get("research.max_products_soft_warn", 25))
+        if soft_warn > 0 and len(products_to_write) > soft_warn:
+            logger.warning(
+                "Unusually large batch: %d products would be promoted to "
+                "sourcing (threshold %d). Writing all of them, but sanity-"
+                "check your filters (volume/CPC/competition/price thresholds, "
+                "strategy weights) — this is often the first sign of a "
+                "filter regression.",
+                len(products_to_write), soft_warn,
+            )
+            stats["products_soft_warn_triggered"] = True
 
         # Step 5: Write to Sheet — BULK. Each keyword previously meant 3+
         # API calls (add_keyword, add_product, add_log) so 71 products =

@@ -196,10 +196,22 @@ research:
   # The LLM prompt already targets 2–4 words; this is a defensive backstop.
   max_keyword_words: 5
   # Cap on the number of products each Discover run can promote to
-  # sourcing. A human agent can only physically source so many products per
-  # day — dumping 40 on them at once means they sit stale and the dashboard
-  # becomes noise. Run this daily; best N by composite score go through.
-  max_products_per_run: 5
+  # sourcing. The filters above (volume / CPC / competition / price / LLM QA)
+  # are the real quality contract — if a candidate passes all of them AND
+  # matches on AliExpress, it's qualified. An extra ranking-based cap on
+  # top of that would silently drop qualified candidates #6+, which is
+  # indistinguishable from a bug. 0 disables the cap (default).
+  #
+  # Set a positive value only if you want a hard ceiling to catch filter
+  # misconfigurations — e.g. 50 as a safety net, knowing normal runs never
+  # hit it. Pipeline logs a WARN when a run produces more than
+  # max_products_soft_warn (see below) even with cap disabled, so you'll
+  # still be alerted to "woah, why did 80 products qualify today?"
+  max_products_per_run: 0
+  # Soft-warning threshold: log a WARN if a single run promotes more than
+  # this many products to sourcing. Purely informational — doesn't drop
+  # anything. Helps catch filter regressions without a hard cap.
+  max_products_soft_warn: 25
   # Layer 3 pre-SerpAPI QA cap. After volume/CPC filtering we send the
   # surviving keywords to Claude in one batched call, asking for the top N
   # by real-world profitability. Only those N proceed to SerpAPI ($0.015/kw).
