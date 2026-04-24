@@ -1221,10 +1221,19 @@ class ResearchPipeline:
         if cost_tracker.records:
             logger.info("Cost summary:\n%s", cost_tracker.summary())
             try:
+                # persist() now handles its own failures internally:
+                # drains any previous-run backlog from disk, writes
+                # today's batch, and spills to disk if that fails. This
+                # outer try/except is defense-in-depth for unexpected
+                # exceptions (e.g. a programming error in persist itself
+                # after a future refactor) — the pipeline must never
+                # crash for an observability side-effect.
                 cost_tracker.persist(self.store)
             except Exception as e:
-                # Never fail the pipeline for an observability side-effect.
-                logger.error("Failed to persist cost records: %s", e)
+                logger.error(
+                    "Unexpected error in cost persist (pipeline-level catch): %s",
+                    e, exc_info=True,
+                )
 
         # Persist drops from stats["dropped_keywords"] in the same end-of-run
         # hook. Kept here (not in a separate method) so every early-return

@@ -24,13 +24,44 @@ Design principles:
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import tempfile
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+
+# -----------------------------------------------------------------------------
+# Spill-to-disk directory for cost records that couldn't reach the sheet.
+#
+# Rationale: before this, a single transient failure (429 after retries,
+# network glitch, revoked creds, mangled GOOGLE_SHEETS_SPREADSHEET_ID)
+# caused `CostTracker.persist` to log + return, dropping the records. The
+# API calls had already been billed by Anthropic / DataForSEO / SerpApi
+# but we had no record of them. Cost reports silently under-reported.
+#
+# Now: on write failure we serialize records to JSON in a pending dir.
+# On the NEXT successful persist call we drain the backlog first, then
+# write the new batch. File gets unlink()ed only after a successful
+# upload so repeated drain failures don't lose data.
+#
+# On Streamlit Cloud /tmp is wiped on reboot, which is acceptable — most
+# failures are transient and the next discover run within the same
+# session will drain them. For the catastrophic-config case (sheet ID
+# cleared) the reboot that fixes the config also wipes pending records,
+# but we still have Anthropic's own billing dashboard as ground truth.
+# -----------------------------------------------------------------------------
+_PENDING_DIR = Path(
+    os.environ.get("BO_PENDING_COSTS_DIR")
+    or (Path(tempfile.gettempdir()) / "bo_pending_costs")
+)
 
 
 # -----------------------------------------------------------------------------
@@ -322,9 +353,27 @@ class CostTracker:
         `store` is a `GoogleSheetsStore` instance (or anything implementing
         `append_cost_records`). We pass records out as dicts so the store
         layer owns the sheet schema.
+
+        Failure handling:
+          1. Drain any pending spill files from previous failed runs FIRST,
+             so a healthy call retroactively captures the backlog.
+          2. Write the current run's records.
+          3. If either step fails, spill to disk and log loudly. Next
+             successful call will drain the backlog.
+
+        This method never raises — cost logging is observability, and a
+        sheet outage shouldn't crash the pipeline. But it also never
+        silently drops data anymore; every byte either lands in the sheet
+        or lands in a pending file that a later call will pick up.
         """
+        # Drain pending backlog first. If this fails we continue — we'd
+        # rather write today's data than abort everything because an old
+        # spill file is corrupt.
+        self._drain_pending(store)
+
         if not self.records:
             return
+
         dict_rows = [
             {
                 "timestamp": r.timestamp,
@@ -346,8 +395,123 @@ class CostTracker:
                 len(dict_rows), self.run_id, self.total_usd(),
             )
         except Exception as e:
-            # Never fail a run because cost logging failed.
-            logger.error("Failed to persist cost records: %s", e)
+            # Sheet write failed. Spill to disk so the next run can
+            # retry; log with exc_info so the Logs view surfaces it.
+            spill_path = self._spill_to_disk(dict_rows, reason=str(e))
+            logger.error(
+                "Failed to persist %d cost records for run %s to sheet: %s. "
+                "Spilled to %s — will retry on next persist.",
+                len(dict_rows), self.run_id, e, spill_path,
+                exc_info=True,
+            )
+
+    # -------------------------------------------------------------------------
+    # Spill-to-disk helpers
+    # -------------------------------------------------------------------------
+
+    def _spill_to_disk(self, dict_rows: list[dict], reason: str) -> Path:
+        """Serialize `dict_rows` to a pending JSON file. Returns the path
+        written so callers can reference it in logs.
+
+        One file per failed persist call. Filename includes run_id + unix
+        timestamp so sorting drains oldest-first.
+        """
+        try:
+            _PENDING_DIR.mkdir(parents=True, exist_ok=True)
+            fname = f"{self.run_id}_{int(time.time() * 1000)}.json"
+            path = _PENDING_DIR / fname
+            path.write_text(json.dumps({
+                "run_id": self.run_id,
+                "spilled_at": datetime.now().isoformat(timespec="seconds"),
+                "reason": reason,
+                "records": dict_rows,
+            }))
+            return path
+        except Exception as e:
+            # Disk spill failed too (read-only FS? out of space?). At
+            # this point we've truly lost the data — but at least log
+            # with enough detail for forensic reconstruction from the
+            # provider's own billing dashboard.
+            logger.critical(
+                "Cost record spill-to-disk ALSO failed for run %s: %s. "
+                "DATA LOST — reconstruct from provider billing dashboards. "
+                "Records: %s",
+                self.run_id, e, dict_rows,
+            )
+            return Path("/dev/null")
+
+    @staticmethod
+    def _drain_pending(store) -> int:
+        """Upload every pending spill file, oldest-first. Unlink each only
+        after a successful sheet write. Returns the number of records
+        successfully drained.
+
+        Stops on the first upload failure so we don't hammer the sheet
+        API if it's down — the remaining files stay on disk for the
+        next persist call.
+        """
+        if not _PENDING_DIR.exists():
+            return 0
+
+        drained_records = 0
+        drained_files = 0
+        for path in sorted(_PENDING_DIR.glob("*.json")):
+            try:
+                payload = json.loads(path.read_text())
+            except Exception as e:
+                logger.warning(
+                    "Skipping unreadable pending cost file %s: %s", path.name, e,
+                )
+                # Move corrupt file aside so it doesn't keep failing the
+                # drain forever.
+                try:
+                    path.rename(path.with_suffix(".corrupt"))
+                except Exception:
+                    pass
+                continue
+
+            records = payload.get("records") or []
+            if not records:
+                path.unlink(missing_ok=True)
+                continue
+
+            try:
+                store.append_cost_records(records)
+            except Exception as e:
+                logger.warning(
+                    "Drain failed at %s (%d records): %s. "
+                    "Leaving %d files on disk for next attempt.",
+                    path.name, len(records), e,
+                    len(list(_PENDING_DIR.glob("*.json"))),
+                )
+                break
+
+            # Only unlink after confirmed upload — guarantees no data
+            # loss if the next step throws.
+            path.unlink(missing_ok=True)
+            drained_records += len(records)
+            drained_files += 1
+
+        if drained_files:
+            logger.info(
+                "Drained %d pending cost file(s), %d records total",
+                drained_files, drained_records,
+            )
+        return drained_records
+
+    @staticmethod
+    def pending_cost_records_count() -> int:
+        """Total records sitting in spill files, for dashboard display."""
+        if not _PENDING_DIR.exists():
+            return 0
+        total = 0
+        for path in _PENDING_DIR.glob("*.json"):
+            try:
+                payload = json.loads(path.read_text())
+                total += len(payload.get("records") or [])
+            except Exception:
+                pass
+        return total
 
 
 def _fmt_k(n: int) -> str:
