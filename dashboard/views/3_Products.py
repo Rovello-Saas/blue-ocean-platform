@@ -673,7 +673,68 @@ def _render_actions(store, config, product):
 
     with c1:
         if status in ("killed", "rejected"):
-            if st.button("🔄 Re-test", use_container_width=True, key="act_retest"):
+            # Two ways to resurrect a dead product, with different blast
+            # radius:
+            #
+            #   🔁 Reopen sourcing  — narrow fix for "agent typed a bad
+            #        landed_cost → margin math failed → product killed".
+            #        Only touches test_status + landed_cost, everything
+            #        else (selling_price, keyword metadata, etc.) stays.
+            #        Next Agent Tasks sync re-adds a `pending` row.
+            #
+            #   🔄 Re-test          — full reset. Goes back to DISCOVERED
+            #        and zeroes out ad metrics so a new test starts from
+            #        a clean slate. Right answer if the product was
+            #        actually killed on ad performance, not on cost.
+            #
+            # The reopen case is the more common fix (and the reason the
+            # user asked for this button), so it goes first.
+            if st.button(
+                "🔁 Reopen sourcing",
+                use_container_width=True,
+                key="act_reopen_sourcing",
+                help=(
+                    "Send this product back to the sourcing agent for a "
+                    "fresh landed_cost. Clears the current cost, flips "
+                    "status back to sourcing, and the next Agent Tasks "
+                    "sync will re-add a `pending` row."
+                ),
+            ):
+                # Clear the derived economics fields too — they were
+                # calculated off the old (wrong) landed_cost and would
+                # be stale until the agent fills in a new number. The
+                # next `calculate_economics` run will repopulate them.
+                store.update_product(product.product_id, {
+                    "test_status": ProductStatus.SOURCING.value,
+                    "landed_cost": 0,
+                    "gross_margin": 0,
+                    "gross_margin_pct": 0,
+                    "net_margin": 0,
+                    "net_margin_pct": 0,
+                    "break_even_roas": 0,
+                    "target_roas": 0,
+                    "break_even_cpa": 0,
+                    "target_cpa": 0,
+                    "max_allowed_cpc": 0,
+                    "test_budget": 0,
+                    "reason": "Manually reopened for re-sourcing",
+                })
+                store.add_log(ActionLog(
+                    product_id=product.product_id,
+                    action_type=ActionType.PRODUCT_REOPEN_SOURCING.value,
+                    old_status=status,
+                    new_status=ProductStatus.SOURCING.value,
+                    reason="User reopened product for re-sourcing from Products page",
+                    country=product.country,
+                ))
+                st.success(
+                    "Reopened for sourcing. The agent's row will re-appear "
+                    "on the Agent Tasks sheet after the next **🔄 Sync with "
+                    "agent sheet** on the Research page."
+                )
+                st.rerun()
+
+            if st.button("🔄 Re-test (fresh start)", use_container_width=True, key="act_retest"):
                 store.update_product(product.product_id, {
                     "test_status": ProductStatus.DISCOVERED.value,
                     "reason": "Manual re-test",

@@ -79,6 +79,12 @@ class ActionType(str, Enum):
     PRODUCT_WINNER = "product_winner"
     BUDGET_SCALED = "budget_scaled"
     PRODUCT_RETEST = "product_retest"
+    # Manual "send this back to the sourcing agent for a fresh cost" —
+    # distinct from PRODUCT_RETEST (which resets the whole lifecycle to
+    # DISCOVERED) and from SOURCING_STARTED (fired by the pipeline at
+    # initial discovery). Emitted by the Reopen-sourcing button on the
+    # Products page when the user wants the agent to redo a wrong cost.
+    PRODUCT_REOPEN_SOURCING = "product_reopen_sourcing"
     PRICE_ALERT = "price_alert"
     STOCK_ALERT = "stock_alert"
 
