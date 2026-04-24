@@ -238,7 +238,22 @@ def main():
         return
 
     # ----- Top filters ----------------------------------------------------
-    all_products = store.get_products()
+    # Catch sheet-read failures and surface the real error instead of the
+    # misleading "No products yet" empty-state. _get_all_records now re-raises
+    # on backend errors (bad sheet ID, revoked service account, TOML-mangled
+    # credential, 429 quota, network glitch). Without this wrapper the user
+    # would see an uncaught exception traceback from Streamlit; with it they
+    # get a red banner that points at the root cause.
+    try:
+        all_products = store.get_products()
+    except Exception as e:
+        st.error(
+            f"Could not load products from Google Sheets: {e}\n\n"
+            "Common causes: wrong `GOOGLE_SHEETS_SPREADSHEET_ID`, revoked "
+            "service account, quota exceeded, or the sheet was deleted."
+        )
+        return
+
     if not all_products:
         st.info(
             "No products yet. Go to **Research** → pick keywords → "

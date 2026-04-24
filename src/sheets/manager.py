@@ -345,8 +345,21 @@ class GoogleSheetsStore(DataStore):
             logger.error("Error reading %s: %s", tab_name, e)
             raise
         except Exception as e:
+            # Before: any non-gspread exception (auth failure, bad sheet ID,
+            # service account revoked, TOML-mangled credential, network glitch)
+            # was caught here, logged, and swallowed by returning []. The UI
+            # then cheerfully showed "No products yet" because get_products()
+            # saw zero rows — making a broken Cloud deploy look identical to
+            # a fresh install with no data. Bit us in prod when secrets got
+            # edited: 29 products on the sheet, "No products yet" on screen.
+            #
+            # Now: log and re-raise so callers + Streamlit surface the real
+            # error. The UI is designed to catch exceptions around
+            # get_data_store() / get_products() and render a red banner
+            # with the exception message, which is infinitely better than
+            # the misleading empty state.
             logger.error("Error reading %s: %s", tab_name, e)
-            return []
+            raise
 
     def _find_row_index(self, ws: gspread.Worksheet, id_column: str, id_value: str) -> Optional[int]:
         """Find the row index (1-based) for a record by its ID.
