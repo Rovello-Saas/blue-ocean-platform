@@ -281,9 +281,21 @@ def main() -> None:
 
         col1, col2 = st.columns(2)
         with col1:
+            # If the user landed here via a hero CTA on the Home page, that
+            # CTA stashes the intended store in session state so we can seed
+            # the dropdown to the right value. Pop it (one-shot) — leaving
+            # it set would override the user's choice on subsequent renders.
+            store_options = [s["id"] for s in STORES]
+            preselected = st.session_state.pop("clone_preselected_store", None)
+            default_index = (
+                store_options.index(preselected)
+                if preselected in store_options
+                else 0
+            )
             store = st.selectbox(
                 "Target store",
-                options=[s["id"] for s in STORES],
+                options=store_options,
+                index=default_index,
                 format_func=lambda sid: next(
                     f"{s['flag']} {s['name']} ({s['channel']})"
                     for s in STORES if s["id"] == sid

@@ -88,7 +88,19 @@ def _site_picker() -> str:
 # ---------------------------------------------------------------------------
 
 def _movanella_hero() -> None:
-    """Movanella = research-led pipeline. Primary CTA is 'start research'."""
+    """
+    Movanella = research-led pipeline. Primary CTA is 'start research', but
+    we also surface a secondary 'Clone a page' so the user can skip the
+    research workflow when they already have a competitor URL in mind.
+
+    Why both: the research pipeline is the right entry point for "I want to
+    find products to sell". But sometimes you've seen a winning ad in the
+    wild and just want to ship a Shopify clone of it — no keyword discovery,
+    no AliExpress matching needed. Forcing that flow through Research adds
+    pointless friction. The page-cloner already supports Movanella as a
+    target store (see `_clone.py` → STORES), so wiring the CTA here is
+    purely a UI addition.
+    """
     with st.container(border=True):
         left, right = st.columns([3, 1], vertical_alignment="center")
         with left:
@@ -97,7 +109,13 @@ def _movanella_hero() -> None:
                 "Keyword research → AliExpress sourcing → AI content → Shopify → "
                 "Google Shopping / PMax test campaign. Starts here."
             )
+            st.caption(
+                "Already have a competitor URL? Skip research and clone it directly."
+            )
         with right:
+            # Stack the two CTAs vertically — research is the primary path
+            # (visually weighted with type="primary"), clone is the escape
+            # hatch (secondary). Same column width so they line up cleanly.
             if st.button(
                 "Start research",
                 type="primary",
@@ -105,6 +123,17 @@ def _movanella_hero() -> None:
                 key="hero_movanella",
             ):
                 st.switch_page(ROUTE_RESEARCH)
+            if st.button(
+                "🔗 Clone a page",
+                use_container_width=True,
+                key="hero_movanella_clone",
+                help="Paste a competitor URL and publish it to Movanella — no research step.",
+            ):
+                # Pre-select Movanella in the clone form so the user doesn't
+                # have to pick the store again. The clone view reads this
+                # session-state key on first render and seeds its dropdown.
+                st.session_state["clone_preselected_store"] = "movanella"
+                st.switch_page(ROUTE_CLONE)
 
 
 def _merivalo_hero() -> None:
@@ -124,6 +153,9 @@ def _merivalo_hero() -> None:
                 use_container_width=True,
                 key="hero_merivalo",
             ):
+                # Mirror the Movanella hero — pre-select the store so the
+                # clone form is one click closer to "paste URL and go".
+                st.session_state["clone_preselected_store"] = "merivalo"
                 st.switch_page(ROUTE_CLONE)
 
 
