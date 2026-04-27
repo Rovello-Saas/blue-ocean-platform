@@ -330,4 +330,4 @@ DATAFORSEO_PASSWORD = get_env("DATAFORSEO_PASSWORD")
 
 # Page cloner (Node service). The Python platform POSTs a URL and polls for
 # completion; the Node service does the actual scrape/generate/upload work.
-PAGE_CLONER_URL = get_env("PAGE_CLONER_URL", "http://localhost:3000")
+PAGE_CLONER_URL = get_env("PAGE_CLONER_URL", "http://127.0.0.1:3000")

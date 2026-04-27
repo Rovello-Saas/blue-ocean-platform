@@ -22,8 +22,10 @@ Design intent: landing here should answer "what do I do next?" without you
 having to hunt across five tabs to find the right entry point.
 """
 
+import os
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -48,6 +50,43 @@ SITES = [
     {"id": "movanella", "name": "Movanella",         "flag": "🇺🇸", "channel": "Google Ads"},
     {"id": "merivalo",  "name": "Merivalo",          "flag": "🇩🇪", "channel": "Meta Ads"},
 ]
+
+
+# ---------------------------------------------------------------------------
+# Clone-page availability
+# ---------------------------------------------------------------------------
+
+def _cloud_mode_enabled() -> bool:
+    return os.getenv("BLUE_OCEAN_CLOUD_MODE", "").strip().lower() in {"1", "true", "yes"}
+
+
+def _clone_page_enabled() -> bool:
+    """
+    Local runs can use the laptop Node service. Hosted Streamlit runs need a
+    public PAGE_CLONER_URL, otherwise switching to the Clone page would fail.
+    """
+    from src.core.config import PAGE_CLONER_URL
+
+    if not _cloud_mode_enabled():
+        return True
+
+    parsed = urlparse((PAGE_CLONER_URL or "").strip())
+    return bool(parsed.hostname and parsed.hostname not in {"localhost", "127.0.0.1", "::1"})
+
+
+def _clone_unavailable_caption() -> str:
+    return (
+        "Page cloning is ready in the platform UI, but the cloud app still needs "
+        "a public Page Cloner URL before it can run clones."
+    )
+
+
+def _start_clone_for(site: str) -> None:
+    if not _clone_page_enabled():
+        st.info(_clone_unavailable_caption())
+        return
+    st.session_state["clone_preselected_store"] = site
+    st.switch_page(ROUTE_CLONE)
 
 
 # ---------------------------------------------------------------------------
@@ -109,13 +148,7 @@ def _movanella_hero() -> None:
                 "Keyword research → AliExpress sourcing → AI content → Shopify → "
                 "Google Shopping / PMax test campaign. Starts here."
             )
-            st.caption(
-                "Already have a competitor URL? Skip research and clone it directly."
-            )
         with right:
-            # Stack the two CTAs vertically — research is the primary path
-            # (visually weighted with type="primary"), clone is the escape
-            # hatch (secondary). Same column width so they line up cleanly.
             if st.button(
                 "Start research",
                 type="primary",
@@ -123,17 +156,27 @@ def _movanella_hero() -> None:
                 key="hero_movanella",
             ):
                 st.switch_page(ROUTE_RESEARCH)
+
+    with st.container(border=True):
+        left, right = st.columns([3, 1], vertical_alignment="center")
+        with left:
+            st.markdown("#### 🔗 Movanella — page cloner")
+            st.caption(
+                "Paste a competitor product URL and publish a Shopify clone "
+                "directly to Movanella — no keyword research step."
+            )
+        with right:
             if st.button(
-                "🔗 Clone a page",
+                "Clone a page",
+                type="primary",
                 use_container_width=True,
                 key="hero_movanella_clone",
                 help="Paste a competitor URL and publish it to Movanella — no research step.",
+                disabled=not _clone_page_enabled(),
             ):
-                # Pre-select Movanella in the clone form so the user doesn't
-                # have to pick the store again. The clone view reads this
-                # session-state key on first render and seeds its dropdown.
-                st.session_state["clone_preselected_store"] = "movanella"
-                st.switch_page(ROUTE_CLONE)
+                _start_clone_for("movanella")
+            if not _clone_page_enabled():
+                st.caption(_clone_unavailable_caption())
 
 
 def _merivalo_hero() -> None:
@@ -152,11 +195,11 @@ def _merivalo_hero() -> None:
                 type="primary",
                 use_container_width=True,
                 key="hero_merivalo",
+                disabled=not _clone_page_enabled(),
             ):
-                # Mirror the Movanella hero — pre-select the store so the
-                # clone form is one click closer to "paste URL and go".
-                st.session_state["clone_preselected_store"] = "merivalo"
-                st.switch_page(ROUTE_CLONE)
+                _start_clone_for("merivalo")
+            if not _clone_page_enabled():
+                st.caption(_clone_unavailable_caption())
 
 
 def _all_sites_hero() -> None:
@@ -243,17 +286,22 @@ def _render_movanella_pipeline(store) -> None:
 # Merivalo status pane — recent clone jobs
 # ---------------------------------------------------------------------------
 
-def _render_merivalo_pipeline() -> None:
+def _render_clone_pipeline(site: str) -> None:
     """
-    For Merivalo the 'pipeline' isn't a Sheet of products — it's the list of
-    page-cloner jobs. Show health + recent clones inline so the user doesn't
-    have to jump to the Clone page just to see status.
+    For clone-led flows the 'pipeline' is the list of page-cloner jobs. Show
+    health + recent clones inline so the user doesn't have to jump to the
+    Clone page just to see status.
     """
     from src.page_cloner import PageClonerClient
 
     client = PageClonerClient()
+    site_name = "Movanella" if site == "movanella" else "Merivalo"
 
     st.markdown("### Page cloner status")
+
+    if not _clone_page_enabled():
+        st.warning(_clone_unavailable_caption())
+        return
 
     if not client.health_check():
         st.error(
@@ -263,6 +311,13 @@ def _render_merivalo_pipeline() -> None:
         return
 
     st.caption(f"Connected to `{client.base_url}` ✓")
+    if st.button(
+        f"Clone a page for {site_name}",
+        type="primary",
+        key=f"status_clone_{site}",
+        use_container_width=True,
+    ):
+        _start_clone_for(site)
 
     # Job list is best-effort — the detail page has richer controls.
     try:
@@ -271,6 +326,9 @@ def _render_merivalo_pipeline() -> None:
         jobs = r.json() if r.ok else []
     except Exception:
         jobs = []
+
+    if site in ("movanella", "merivalo"):
+        jobs = [j for j in jobs if j.get("storeId") == site]
 
     if not jobs:
         st.info("No clone jobs yet. Paste a competitor URL above to start the first one.")
@@ -544,7 +602,7 @@ def main() -> None:
     # 3. Merivalo doesn't depend on the Sheet — render its pane and return
     #    early. No sense trying to load the Sheet just to ignore it.
     if site == "merivalo":
-        _render_merivalo_pipeline()
+        _render_clone_pipeline("merivalo")
         return
 
     # 4. Everything below here needs the Sheet. Degrade gracefully if it's
@@ -565,12 +623,14 @@ def main() -> None:
 
     if site == "movanella":
         _render_movanella_pipeline(store)
+        st.markdown("---")
+        _render_clone_pipeline("movanella")
     else:  # "all"
         # Show the Movanella pipeline (the only one with a Sheet) and then
         # the Merivalo clone jobs inline, so "All sites" is genuinely both.
         _render_movanella_pipeline(store)
         st.markdown("---")
-        _render_merivalo_pipeline()
+        _render_clone_pipeline("merivalo")
 
     st.markdown("---")
     _render_blockers(store)
