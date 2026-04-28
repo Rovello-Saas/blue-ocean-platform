@@ -27,6 +27,7 @@ sidebar turns into an overwhelm again.
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 # Add project root to path before any src.* imports happen downstream.
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -35,6 +36,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 import logging
 
 import streamlit as st
+from src.core.config import PAGE_CLONER_URL
 
 logging.basicConfig(
     level=logging.INFO,
@@ -144,13 +146,15 @@ studio_page      = st.Page("views/6_Image_Studio.py",  title="Image Studio",   i
 content_page     = st.Page("views/7_Content_Studio.py", title="Content Studio", icon="📝")
 settings_page    = st.Page("views/1_Settings.py",      title="Settings",       icon="⚙️")
 
-# Cloud vs. local: the Clone page requires the Node page-cloner service
-# running at localhost:3000 (see `src/page_cloner.py`). On Streamlit Cloud
-# that service isn't reachable, so we hide the page entirely rather than
-# leave a broken entry in the nav. Toggle with the `BLUE_OCEAN_CLOUD_MODE`
-# env var — set it to any truthy value (`1`, `true`) on the Cloud instance.
+# Cloud vs. local: the Clone page requires the Node page-cloner service.
+# Localhost only works on the laptop running Streamlit. On Streamlit Cloud,
+# show the Clone page only when PAGE_CLONER_URL points at a public service.
 _cloud_mode = os.getenv("BLUE_OCEAN_CLOUD_MODE", "").strip().lower() in {"1", "true", "yes"}
-workflows_pages = [research_page] if _cloud_mode else [clone_page, research_page]
+_page_cloner_url = (PAGE_CLONER_URL or "").strip()
+_page_cloner_host = urlparse(_page_cloner_url).hostname if _page_cloner_url else ""
+_page_cloner_is_local = _page_cloner_host in {"localhost", "127.0.0.1", "::1"}
+_clone_page_enabled = (not _cloud_mode) or bool(_page_cloner_url and not _page_cloner_is_local)
+workflows_pages = [clone_page, research_page] if _clone_page_enabled else [research_page]
 
 # Grouped navigation. Streamlit renders each key as a section heading in the
 # sidebar, so the user sees stages of a workflow instead of a flat wall of

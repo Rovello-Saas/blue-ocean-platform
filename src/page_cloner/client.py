@@ -107,17 +107,28 @@ class PageClonerClient:
 
     def health_check(self) -> bool:
         """
-        Cheap reachability probe. Returns True if the server answers `/api/jobs`
-        with 2xx, False on any failure. Does not raise — useful for dashboards
-        that want to show "page cloner: up / down" without try/except noise.
+        Cheap reachability probe. Prefer `/api/health` when the service exposes
+        it, and fall back to `/api/jobs` for older page-cloner deployments. Does
+        not raise — useful for dashboards that want to show "page cloner: up /
+        down" without try/except noise.
         """
         try:
+            r = requests.get(
+                f"{self.base_url}/api/health",
+                timeout=self.request_timeout_sec,
+            )
+            if r.ok:
+                data = r.json()
+                return data.get("service") == "page-cloner"
+
             r = requests.get(
                 f"{self.base_url}/api/jobs",
                 timeout=self.request_timeout_sec,
             )
-            return r.ok
-        except requests.RequestException:
+            if not r.ok:
+                return False
+            return isinstance(r.json(), list)
+        except (ValueError, requests.RequestException):
             return False
 
     # ------------------------------------------------------------------- start
