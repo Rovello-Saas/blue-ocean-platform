@@ -22,9 +22,8 @@ Design intent: landing here should answer "what do I do next?" without you
 having to hunt across five tabs to find the right entry point.
 """
 
-import sys
 from pathlib import Path
-from urllib.parse import urlparse
+import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -51,54 +50,7 @@ SITES = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Clone-page availability
-# ---------------------------------------------------------------------------
-
-def _cloud_mode_enabled() -> bool:
-    from src.core.config import get_env
-
-    return get_env("BLUE_OCEAN_CLOUD_MODE", "").strip().lower() in {"1", "true", "yes"}
-
-
-def _clone_page_enabled() -> bool:
-    """
-    Local runs can use the laptop Node service. Hosted Streamlit runs need a
-    public PAGE_CLONER_URL, otherwise switching to the Clone page would fail.
-    """
-    from src.core.config import PAGE_CLONER_URL
-
-    if not _cloud_mode_enabled():
-        return True
-
-    url = (PAGE_CLONER_URL or "").strip()
-    parsed = urlparse(url)
-    is_placeholder = "your-page-cloner-service" in url
-    return bool(parsed.hostname and parsed.hostname not in {"localhost", "127.0.0.1", "::1"} and not is_placeholder)
-
-
-def _clone_unavailable_caption() -> str:
-    from src.core.config import PAGE_CLONER_URL
-
-    url = (PAGE_CLONER_URL or "").strip()
-    if not url:
-        detail = "PAGE_CLONER_URL is not set."
-    elif "your-page-cloner-service" in url:
-        detail = "PAGE_CLONER_URL is still the example placeholder."
-    else:
-        parsed = urlparse(url)
-        detail = f"PAGE_CLONER_URL is `{url}`, which is not reachable from Streamlit Cloud." if parsed.hostname in {"localhost", "127.0.0.1", "::1"} else f"Configured URL: `{url}`."
-
-    return (
-        "Page cloning is ready in the platform UI, but the cloud app still needs "
-        f"a public Page Cloner URL before it can run clones. {detail}"
-    )
-
-
 def _start_clone_for(site: str) -> None:
-    if not _clone_page_enabled():
-        st.info(_clone_unavailable_caption())
-        return
     st.session_state["clone_preselected_store"] = site
     st.switch_page(ROUTE_CLONE)
 
@@ -186,11 +138,8 @@ def _movanella_hero() -> None:
                 use_container_width=True,
                 key="hero_movanella_clone",
                 help="Paste a competitor URL and publish it to Movanella — no research step.",
-                disabled=not _clone_page_enabled(),
             ):
                 _start_clone_for("movanella")
-            if not _clone_page_enabled():
-                st.caption(_clone_unavailable_caption())
 
 
 def _merivalo_hero() -> None:
@@ -209,11 +158,8 @@ def _merivalo_hero() -> None:
                 type="primary",
                 use_container_width=True,
                 key="hero_merivalo",
-                disabled=not _clone_page_enabled(),
             ):
                 _start_clone_for("merivalo")
-            if not _clone_page_enabled():
-                st.caption(_clone_unavailable_caption())
 
 
 def _all_sites_hero() -> None:
@@ -313,15 +259,18 @@ def _render_clone_pipeline(site: str) -> None:
 
     st.markdown("### Page cloner status")
 
-    if not _clone_page_enabled():
-        st.warning(_clone_unavailable_caption())
-        return
-
     if not client.health_check():
         st.error(
             f"Page cloner is unreachable at `{client.base_url}`. "
-            "Start it with `cd page-cloner && node server.js`."
+            "The Streamlit app is ready, but the page-cloner engine is not responding."
         )
+        if st.button(
+            f"Open clone page for {site_name}",
+            type="primary",
+            key=f"status_clone_unreachable_{site}",
+            use_container_width=True,
+        ):
+            _start_clone_for(site)
         return
 
     st.caption(f"Connected to `{client.base_url}` ✓")

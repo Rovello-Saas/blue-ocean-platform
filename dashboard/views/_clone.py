@@ -214,10 +214,14 @@ def main() -> None:
     # connection error.
     if not client.health_check():
         st.error(
-            f"Page cloner is unreachable at `{client.base_url}`.\n\n"
-            "Start it with:\n"
-            "```\ncd /Users/marcbakker/Desktop/Movanella/page-cloner\n"
-            "node server.js\n```"
+            f"The page-cloner engine is unreachable at `{client.base_url}`.\n\n"
+            "This page is built into the Streamlit platform, but the background "
+            "clone engine still has to be running so it can scrape, generate, "
+            "upload, and publish the Shopify page."
+        )
+        st.caption(
+            "Local: run the page cloner on port 3000. Cloud: set PAGE_CLONER_URL "
+            "to the deployed page-cloner service."
         )
         return
 

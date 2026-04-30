@@ -353,6 +353,8 @@ ANTHROPIC_API_KEY = get_env("ANTHROPIC_API_KEY")
 DATAFORSEO_LOGIN = get_env("DATAFORSEO_LOGIN")
 DATAFORSEO_PASSWORD = get_env("DATAFORSEO_PASSWORD")
 
-# Page cloner (Node service). The Python platform POSTs a URL and polls for
-# completion; the Node service does the actual scrape/generate/upload work.
-PAGE_CLONER_URL = get_env("PAGE_CLONER_URL", "http://127.0.0.1:3000")
+# Page cloner engine. Streamlit owns the UI; the Node service only does the
+# scrape/generate/upload work behind the Clone page. Local `.env` can still
+# point this at http://127.0.0.1:3000, while Cloud falls back to the Render
+# service so clone buttons work without a separate dashboard setting.
+PAGE_CLONER_URL = get_env("PAGE_CLONER_URL", "https://blue-ocean-page-cloner.onrender.com")
