@@ -1,0 +1,67 @@
+{
+  "generatedAt": "2026-03-24T18:11:16.160Z",
+  "basedOnScrape": "goveliqo.com bundle pricing",
+  "shopifyProducts": {
+    "wall-art-light": {
+      "id": "gid://shopify/Product/10639381725527",
+      "title": "Wall Art Light"
+    },
+    "motion-sensor-strip-light": {
+      "id": "gid://shopify/Product/10639381758295",
+      "title": "Motion Sensor Strip Light"
+    },
+    "motion-sensor-led-bar": {
+      "id": "gid://shopify/Product/10639381791063",
+      "title": "Motion Sensor LED Bar"
+    },
+    "motion-led-strip-light": {
+      "id": "gid://shopify/Product/10639381823831",
+      "title": "Motion LED Strip Light"
+    }
+  },
+  "discountTiers": [
+    {
+      "quantity": 2,
+      "percentage": 10,
+      "label": "Beliebteste (Most Popular)",
+      "title": "Kaufe 2+ Spare 10%"
+    },
+    {
+      "quantity": 3,
+      "percentage": 15,
+      "label": "Bester Wert (Best Value)",
+      "title": "Kaufe 3+ Spare 15%"
+    },
+    {
+      "quantity": 4,
+      "percentage": 20,
+      "label": "Bestes Angebot (Best Deal)",
+      "title": "Kaufe 4+ Spare 20%"
+    }
+  ],
+  "scrapedBundleTiers": {
+    "wall-art-light": [
+      {
+        "qty": 1,
+        "savePercent": 25,
+        "price": 34.95,
+        "fullPrice": null,
+        "badge": "",
+        "rawTitle": "1er-Set"
+      },
+      {
+        "qty": 2,
+        "savePercent": 38,
+        "price": 58.95,
+        "fullPrice": 69.9,
+        "badge": "",
+        "rawTitle": "2er-Set"
+      }
+    ],
+    "motion-sensor-strip-light": [],
+    "motion-sensor-led-bar": [],
+    "motion-led-strip-light": []
+  },
+  "apiScopeAvailable": false,
+  "discountsCreatedViaAPI": false
+}

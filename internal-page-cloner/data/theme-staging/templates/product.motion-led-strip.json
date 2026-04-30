@@ -1,0 +1,379 @@
+{
+  "sections": {
+    "main": {
+      "type": "product-information",
+      "blocks": {
+        "media-gallery": {
+          "type": "_product-media-gallery",
+          "static": true,
+          "settings": {
+            "media_presentation": "grid",
+            "media_columns": "two",
+            "image_gap": 4,
+            "large_first_image": false,
+            "icons_style": "none",
+            "slideshow_controls_style": "counter",
+            "slideshow_mobile_controls_style": "dots",
+            "thumbnail_position": "right",
+            "thumbnail_width": 44,
+            "thumbnail_radius": 0,
+            "aspect_ratio": "adapt",
+            "constrain_to_viewport": true,
+            "media_fit": "contain",
+            "media_radius": 12,
+            "extend_media": true,
+            "zoom": true,
+            "video_loop": false,
+            "hide_variants": true,
+            "padding-block-start": 0,
+            "padding-block-end": 0,
+            "padding-inline-start": 0,
+            "padding-inline-end": 0
+          },
+          "blocks": {}
+        },
+        "product-details": {
+          "type": "_product-details",
+          "static": true,
+          "settings": {
+            "width": "fill",
+            "custom_width": 100,
+            "width_mobile": "fill",
+            "custom_width_mobile": 100,
+            "height": "fit",
+            "details_position": "flex-start",
+            "gap": 28,
+            "sticky_details_desktop": true,
+            "inherit_color_scheme": true,
+            "color_scheme": "scheme-1",
+            "background_media": "none",
+            "video_position": "cover",
+            "background_image_position": "cover",
+            "border": "none",
+            "border_width": 1,
+            "border_opacity": 100,
+            "border_radius": 0,
+            "padding-block-start": 0,
+            "padding-block-end": 24,
+            "padding-inline-start": 0,
+            "padding-inline-end": 0
+          },
+          "blocks": {
+            "group_header": {
+              "type": "group",
+              "name": "Header",
+              "settings": {
+                "content_direction": "column",
+                "vertical_on_mobile": true,
+                "horizontal_alignment": "flex-start",
+                "vertical_alignment": "center",
+                "align_baseline": false,
+                "horizontal_alignment_flex_direction_column": "flex-start",
+                "vertical_alignment_flex_direction_column": "center",
+                "gap": 12,
+                "width": "fill",
+                "custom_width": 100,
+                "width_mobile": "fill",
+                "custom_width_mobile": 100,
+                "height": "fit",
+                "inherit_color_scheme": true,
+                "background_media": "none",
+                "border": "none",
+                "padding-block-start": 0,
+                "padding-block-end": 0,
+                "padding-inline-start": 0,
+                "padding-inline-end": 0
+              },
+              "blocks": {
+                "title_block": {
+                  "type": "text",
+                  "name": "Product title",
+                  "settings": {
+                    "text": "<h5>{{ closest.product.title }}</h5>",
+                    "width": "100%",
+                    "max_width": "normal",
+                    "alignment": "left",
+                    "type_preset": "custom",
+                    "font": "var(--font-subheading--family)",
+                    "font_size": "1.25rem",
+                    "line_height": "normal",
+                    "letter_spacing": "normal",
+                    "case": "none",
+                    "wrap": "pretty",
+                    "color": "var(--color-foreground)",
+                    "background": false,
+                    "padding-block-start": 0,
+                    "padding-block-end": 0,
+                    "padding-inline-start": 0,
+                    "padding-inline-end": 0
+                  },
+                  "blocks": {}
+                },
+                "price_block": {
+                  "type": "price",
+                  "settings": {
+                    "show_sale_price_first": true,
+                    "show_installments": false,
+                    "show_tax_info": false,
+                    "type_preset": "custom",
+                    "width": "fit-content",
+                    "alignment": "left",
+                    "font": "var(--font-heading--family)",
+                    "font_size": "1rem",
+                    "line_height": "normal",
+                    "letter_spacing": "normal",
+                    "case": "none",
+                    "color": "var(--color-foreground)",
+                    "padding-block-start": 12,
+                    "padding-block-end": 12,
+                    "padding-inline-start": 0,
+                    "padding-inline-end": 0
+                  },
+                  "blocks": {}
+                },
+                "description_block": {
+                  "type": "product-description",
+                  "name": "Product description",
+                  "settings": {
+                    "text": "{{ closest.product.description }}",
+                    "width": "fit-content",
+                    "max_width": "normal",
+                    "alignment": "left",
+                    "type_preset": "rte",
+                    "font": "var(--font-body--family)",
+                    "font_size": "1rem",
+                    "line_height": "normal",
+                    "letter_spacing": "normal",
+                    "case": "none",
+                    "wrap": "pretty",
+                    "color": "var(--color-foreground)",
+                    "background": false,
+                    "padding-block-start": 0,
+                    "padding-block-end": 0,
+                    "padding-inline-start": 0,
+                    "padding-inline-end": 0
+                  },
+                  "blocks": {}
+                }
+              },
+              "block_order": [
+                "title_block",
+                "price_block",
+                "description_block"
+              ]
+            },
+            "variant_picker": {
+              "type": "variant-picker",
+              "settings": {
+                "variant_style": "buttons",
+                "show_swatches": false,
+                "alignment": "left",
+                "padding-block-start": 0,
+                "padding-block-end": 0,
+                "padding-inline-start": 0,
+                "padding-inline-end": 0
+              },
+              "blocks": {}
+            },
+            "buy_buttons": {
+              "type": "buy-buttons",
+              "settings": {
+                "stacking": true,
+                "show_pickup_availability": false,
+                "gift_card_form": true,
+                "padding-block-start": 0,
+                "padding-block-end": 0,
+                "padding-inline-start": 0,
+                "padding-inline-end": 0
+              },
+              "blocks": {
+                "quantity": {
+                  "type": "quantity",
+                  "disabled": true,
+                  "static": true,
+                  "settings": {},
+                  "blocks": {}
+                },
+                "add-to-cart": {
+                  "type": "add-to-cart",
+                  "static": true,
+                  "settings": {
+                    "style_class": "button"
+                  },
+                  "blocks": {}
+                },
+                "accelerated-checkout": {
+                  "type": "accelerated-checkout",
+                  "static": true,
+                  "settings": {},
+                  "blocks": {}
+                }
+              },
+              "block_order": []
+            },
+            "accordion_mls1": {
+              "type": "accordion",
+              "name": "t:names.accordion",
+              "settings": {
+                "icon": "caret",
+                "dividers": true,
+                "type_preset": "h6",
+                "inherit_color_scheme": true,
+                "color_scheme": "",
+                "border": "none",
+                "border_width": 1,
+                "border_opacity": 100,
+                "border_radius": 0,
+                "padding-block-start": 0,
+                "padding-block-end": 0,
+                "padding-inline-start": 0,
+                "padding-inline-end": 0
+              },
+              "blocks": {
+                "accordion_row_mls1_inc": {
+                  "type": "_accordion-row",
+                  "settings": {
+                    "heading": "What's included?",
+                    "open_by_default": false,
+                    "icon": "none",
+                    "width": 20
+                  },
+                  "blocks": {
+                    "text_mls1_inc": {
+                      "type": "text",
+                      "settings": {
+                        "text": "<p>1× Motion LED Strip Light<br/>1× Adhesive strip<br/>1× Instruction manual</p>",
+                        "width": "100%",
+                        "max_width": "normal",
+                        "alignment": "left",
+                        "type_preset": "rte",
+                        "font": "var(--font-body--family)",
+                        "font_size": "1rem",
+                        "line_height": "normal",
+                        "letter_spacing": "normal",
+                        "case": "none",
+                        "wrap": "pretty",
+                        "color": "var(--color-foreground)",
+                        "background": false,
+                        "background_color": "#00000026",
+                        "corner_radius": 0,
+                        "padding-block-start": 0,
+                        "padding-block-end": 0,
+                        "padding-inline-start": 0,
+                        "padding-inline-end": 0
+                      },
+                      "blocks": {}
+                    }
+                  },
+                  "block_order": [
+                    "text_mls1_inc"
+                  ]
+                },
+                "accordion_row_mls1_spec": {
+                  "type": "_accordion-row",
+                  "settings": {
+                    "heading": "Specifications",
+                    "open_by_default": false,
+                    "icon": "none",
+                    "width": 20
+                  },
+                  "blocks": {
+                    "text_mls1_spec": {
+                      "type": "text",
+                      "settings": {
+                        "text": "<p><strong>Diameter</strong>: 3.1 in<br/><strong>Material</strong>: PVC + ABS<br/><strong>Lighting modes</strong>: 3<br/><strong>Voltage</strong>: 5V<br/><strong>Auto shut-off</strong>: after 20 seconds<br/><strong>Waterproof rating</strong>: IP65 (waterproof)<br/><strong>Power options</strong>: AAA batteries (battery model) or USB-rechargeable</p>",
+                        "width": "100%",
+                        "max_width": "normal",
+                        "alignment": "left",
+                        "type_preset": "rte",
+                        "font": "var(--font-body--family)",
+                        "font_size": "1rem",
+                        "line_height": "normal",
+                        "letter_spacing": "normal",
+                        "case": "none",
+                        "wrap": "pretty",
+                        "color": "var(--color-foreground)",
+                        "background": false,
+                        "background_color": "#00000026",
+                        "corner_radius": 0,
+                        "padding-block-start": 0,
+                        "padding-block-end": 0,
+                        "padding-inline-start": 0,
+                        "padding-inline-end": 0
+                      },
+                      "blocks": {}
+                    }
+                  },
+                  "block_order": [
+                    "text_mls1_spec"
+                  ]
+                },
+                "accordion_row_mls1_ship": {
+                  "type": "_accordion-row",
+                  "settings": {
+                    "heading": "Shipping & Returns",
+                    "open_by_default": false,
+                    "icon": "none",
+                    "width": 20
+                  },
+                  "blocks": {
+                    "text_mls1_ship": {
+                      "type": "text",
+                      "settings": {
+                        "text": "<p>Shipping: We offer free shipping on all our products. Orders are processed within 1–2 business days and typically arrive within 5–8 business days. For detailed information, please see our shipping policy.</p><p>Returns: You can return items within 30 days of delivery. Products must be returned with the complete original packaging and all accessories. For detailed information, please see our refund and return policy.</p>",
+                        "width": "100%",
+                        "max_width": "normal",
+                        "alignment": "left",
+                        "type_preset": "rte",
+                        "font": "var(--font-body--family)",
+                        "font_size": "1rem",
+                        "line_height": "normal",
+                        "letter_spacing": "normal",
+                        "case": "none",
+                        "wrap": "pretty",
+                        "color": "var(--color-foreground)",
+                        "background": false,
+                        "background_color": "#00000026",
+                        "corner_radius": 0,
+                        "padding-block-start": 0,
+                        "padding-block-end": 0,
+                        "padding-inline-start": 0,
+                        "padding-inline-end": 0
+                      },
+                      "blocks": {}
+                    }
+                  },
+                  "block_order": [
+                    "text_mls1_ship"
+                  ]
+                }
+              },
+              "block_order": [
+                "accordion_row_mls1_inc",
+                "accordion_row_mls1_spec",
+                "accordion_row_mls1_ship"
+              ]
+            }
+          },
+          "block_order": [
+            "group_header",
+            "variant_picker",
+            "buy_buttons",
+            "accordion_mls1"
+          ]
+        }
+      },
+      "settings": {}
+    },
+    "custom_liquid_cloned": {
+      "type": "custom-liquid",
+      "settings": {
+        "custom_liquid": "<style>\n  .pcc-wrapper { max-width: 100%; margin: 0 auto; padding: 0 40px; }\n  .pcc-section-title { font-size: 32px; font-weight: 700; text-align: center; margin-bottom: 50px; color: #1a1a1a; }\n\n  .pcc-features { display: grid; grid-template-columns: 1fr 1.8fr 1fr; gap: 40px; align-items: center; }\n  .pcc-feature-col { display: flex; flex-direction: column; gap: 50px; }\n  .pcc-feature { text-align: center; }\n  .pcc-feature svg { display: block; margin: 0 auto 18px; }\n  .pcc-feature h3 { font-size: 15px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; margin: 0 0 12px; color: #1a1a1a; }\n  .pcc-feature p { font-size: 15px; color: #666; line-height: 1.7; margin: 0; }\n  .pcc-features-img { width: 100%; border-radius: 12px; object-fit: cover; }\n\n  .pcc-row { display: grid; grid-template-columns: 1fr 1fr; gap: 50px; align-items: center; margin-top: 80px; }\n  .pcc-row img { width: 100%; border-radius: 8px; }\n  .pcc-row-text h2 { font-size: 28px; font-weight: 700; color: #1a1a1a; margin: 0 0 16px; }\n  .pcc-row-text p { font-size: 16px; color: #555; line-height: 1.7; margin: 0; }\n\n  .pcc-trust { margin-top: 80px; padding: 50px 20px; background: #f7f7f7; border-radius: 12px; text-align: center; }\n  .pcc-trust h2 { font-size: 24px; font-weight: 700; color: #1a1a1a; margin: 0 0 35px; }\n  .pcc-trust-grid { display: grid !important; grid-template-columns: repeat(3, 1fr) !important; gap: 30px; }\n  .pcc-trust-item { text-align: center; }\n  .pcc-trust-item img { display: block; margin: 0 auto 10px; width: 40px !important; height: 40px !important; }\n  .pcc-trust-item h3 { font-size: 15px; font-weight: 700; color: #1a1a1a; margin: 0 0 4px; }\n  .pcc-trust-item p { font-size: 13px; color: #888; margin: 0; }\n\n  @media (max-width: 768px) {\n\n    .pcc-wrapper { padding: 0 20px; margin-top: 40px !important; }\n    .pcc-section-title { font-size: 26px; margin-bottom: 30px; margin-top: 20px; }\n    .pcc-features { grid-template-columns: 1fr; gap: 30px; }\n    .pcc-features > div:nth-child(2) { order: -1; }\n    .pcc-feature-col { flex-direction: row; gap: 20px; }\n    .pcc-feature-col .pcc-feature { flex: 1; }\n    .pcc-feature svg { width: 36px; height: 36px; margin-bottom: 10px; }\n    .pcc-feature h3 { font-size: 12px; letter-spacing: 1px; margin: 0 0 6px; }\n    .pcc-feature p { display: none; }\n    .pcc-row { grid-template-columns: 1fr; gap: 20px; }\n    .pcc-row.pcc-row-reverse { direction: ltr; }\n    .pcc-row-text { text-align: center; }\n    .pcc-row-text h2 { font-size: 22px; }\n    .pcc-row-text p { font-size: 15px; }\n    .pcc-trust { padding: 30px 15px; }\n    .pcc-trust h2 { font-size: 20px; margin-bottom: 20px; }\n    .pcc-trust-grid { display: grid !important; grid-template-columns: repeat(3, 1fr) !important; gap: 10px !important; }\n    .pcc-trust-item img { width: 28px; height: 28px; }\n    .pcc-trust-item h3 { font-size: 11px; }\n    .pcc-trust-item p { display: none; }\n  }\n</style>\n\n<div class=\"pcc-wrapper\" style=\"margin-top: 60px; margin-bottom: 60px;\">\n\n  <h2 class=\"pcc-section-title\">Perfect lighting, right where you need it</h2>\n  <div class=\"pcc-features\">\n    <div class=\"pcc-feature-col\">\n      <div class=\"pcc-feature\">\n        <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"48\" height=\"48\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#1a1a1a\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5.52 19c.64-2.2 1.84-3 3.22-3h6.52c1.38 0 2.58.8 3.22 3\"></path><circle cx=\"12\" cy=\"10\" r=\"3\"></circle><circle cx=\"12\" cy=\"12\" r=\"10\"></circle></svg>\n        <h3>Motion-Activated</h3>\n        <p>Lights up instantly when movement is detected, giving you hands-free visibility exactly when you need it.</p>\n      </div>\n      <div class=\"pcc-feature\">\n        <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"48\" height=\"48\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#1a1a1a\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"1\" y=\"6\" width=\"18\" height=\"12\" rx=\"2\" ry=\"2\"></rect><path d=\"M23 13L23 11\"></path></svg>\n        <h3>No Power Outlet Needed</h3>\n        <p>Battery-powered and wire-free, allowing you to install it in spots where traditional lighting is not possible -- stairs, closets, hallways and more.</p>\n      </div>\n    </div>\n    <div>\n      <img class=\"pcc-features-img\" style=\"width:100%;border-radius:12px;\" src=\"https://goveliqo.com/cdn/shop/files/GIF_1_c8908acc-317c-439e-a902-76b3cabc96df.webp\" alt=\"Motion LED Strip Light in action\" loading=\"lazy\" />\n    </div>\n    <div class=\"pcc-feature-col\">\n      <div class=\"pcc-feature\">\n        <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"48\" height=\"48\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#1a1a1a\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polygon points=\"12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2\"></polygon></svg>\n        <h3>Stylish Design</h3>\n        <p>A sleek, modern look that blends seamlessly into any home interior, from hallways to bedrooms.</p>\n      </div>\n      <div class=\"pcc-feature\">\n        <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"48\" height=\"48\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#1a1a1a\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M18.36 6.64a9 9 0 1 1-12.73 0\"></path><path d=\"M12 2L12 12\"></path></svg>\n        <h3>Energy-Saving</h3>\n        <p>Automatically turns off after 20 seconds of inactivity, helping you conserve power and extend battery life.</p>\n      </div>\n    </div>\n  </div>\n\n  <div class=\"pcc-row\">\n    <div>\n      <img src=\"https://goveliqo.com/cdn/shop/files/motion_light_5_-_08.webp\" alt=\"Flexible LED strip length options\" loading=\"lazy\" />\n    </div>\n    <div class=\"pcc-row-text\">\n      <h2>Flexible length options</h2>\n      <p>This LED strip bar adjusts to your space and lighting needs -- and you can easily connect multiple strips together for longer setups.</p>\n    </div>\n  </div>\n\n  <div class=\"pcc-row pcc-row-reverse\" style=\"direction: rtl;\">\n    <div style=\"direction: ltr;\">\n      <img src=\"https://goveliqo.com/cdn/shop/files/motion-led-strip-light-motion-sensor-led-bar-battery-or-usb-4906274.webp\" alt=\"LED strip light indoor or outdoor use\" loading=\"lazy\" />\n    </div>\n    <div class=\"pcc-row-text\" style=\"direction: ltr;\">\n      <h2>Indoor or outdoor use</h2>\n      <p>With its IP65 waterproof rating and adhesive backing, this strip light can handle humid baths, covered patios or garden paths with ease.</p>\n    </div>\n  </div>\n\n  <div class=\"pcc-trust\">\n    <h2>Shop with confidence</h2>\n    <div class=\"pcc-trust-grid\" style=\"display:grid;grid-template-columns:repeat(3,1fr);gap:30px;\">\n      <div class=\"pcc-trust-item\">\n        <img src=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 24 24' fill='none' stroke='%231a1a1a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='1' y='3' width='15' height='13'/%3E%3Cpolygon points='16 8 20 8 23 11 23 16 16 16 16 8'/%3E%3Ccircle cx='5.5' cy='18.5' r='2.5'/%3E%3Ccircle cx='18.5' cy='18.5' r='2.5'/%3E%3C/svg%3E\" width=\"40\" height=\"40\" alt=\"\" />\n        <h3>Free Shipping</h3>\n        <p>Enjoy tracked and reliable delivery.</p>\n      </div>\n      <div class=\"pcc-trust-item\">\n        <img src=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 24 24' fill='none' stroke='%231a1a1a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='11' width='18' height='11' rx='2' ry='2'/%3E%3Cpath d='M7 11V7a5 5 0 0 1 10 0v4'/%3E%3C/svg%3E\" width=\"40\" height=\"40\" alt=\"\" />\n        <h3>Secure Payments</h3>\n        <p>Checkout safely with encrypted payment processing.</p>\n      </div>\n      <div class=\"pcc-trust-item\">\n        <img src=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 24 24' fill='none' stroke='%231a1a1a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M23 4L23 10L17 10'/%3E%3Cpath d='M20.49 15a9 9 0 1 1-2.12-9.36L23 10'/%3E%3C/svg%3E\" width=\"40\" height=\"40\" alt=\"\" />\n        <h3>30-Day Easy Returns</h3>\n        <p>Hassle-free returns for a worry-free experience.</p>\n      </div>\n    </div>\n  </div>\n\n</div>\n"
+      }
+    }
+  },
+  "order": [
+    "main",
+    "custom_liquid_cloned"
+  ]
+}

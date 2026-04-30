@@ -1,0 +1,9 @@
+  <div class="{{cssClass}}"{{#if isReverse}} style="direction: rtl;"{{/if}}>
+    <div{{#if isReverse}} style="direction: ltr;"{{/if}}>
+      <img src="{{image}}" alt="{{imageAlt}}" loading="lazy" />
+    </div>
+    <div class="pcc-row-text"{{#if isReverse}} style="direction: ltr;"{{/if}}>
+      <h2>{{heading}}</h2>
+      <p>{{paragraph}}</p>
+    </div>
+  </div>

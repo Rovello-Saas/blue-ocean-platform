@@ -1,0 +1,132 @@
+# Discount 1: Kaufe 2+ Spare 10%
+mutation {
+  discountAutomaticBasicCreate(automaticBasicDiscount: {
+    title: "Kaufe 2+ Spare 10%",
+    startsAt: "2026-03-24T18:11:16.159Z",
+    customerGets: {
+      value: {
+        percentage: 0.10
+      },
+      items: {
+        products: {
+          productsToAdd: [
+            "gid://shopify/Product/10639381725527",
+            "gid://shopify/Product/10639381758295",
+            "gid://shopify/Product/10639381791063",
+            "gid://shopify/Product/10639381823831"
+          ]
+        }
+      }
+    },
+    minimumRequirement: {
+      quantity: {
+        greaterThanOrEqualToQuantity: "2"
+      }
+    }
+  }) {
+    automaticDiscountNode {
+      id
+      automaticDiscount {
+        ... on DiscountAutomaticBasic {
+          title
+          status
+          startsAt
+        }
+      }
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
+
+--------------------------------------------------------------------------------
+
+# Discount 2: Kaufe 3+ Spare 15%
+mutation {
+  discountAutomaticBasicCreate(automaticBasicDiscount: {
+    title: "Kaufe 3+ Spare 15%",
+    startsAt: "2026-03-24T18:11:16.159Z",
+    customerGets: {
+      value: {
+        percentage: 0.15
+      },
+      items: {
+        products: {
+          productsToAdd: [
+            "gid://shopify/Product/10639381725527",
+            "gid://shopify/Product/10639381758295",
+            "gid://shopify/Product/10639381791063",
+            "gid://shopify/Product/10639381823831"
+          ]
+        }
+      }
+    },
+    minimumRequirement: {
+      quantity: {
+        greaterThanOrEqualToQuantity: "3"
+      }
+    }
+  }) {
+    automaticDiscountNode {
+      id
+      automaticDiscount {
+        ... on DiscountAutomaticBasic {
+          title
+          status
+          startsAt
+        }
+      }
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
+
+--------------------------------------------------------------------------------
+
+# Discount 3: Kaufe 4+ Spare 20%
+mutation {
+  discountAutomaticBasicCreate(automaticBasicDiscount: {
+    title: "Kaufe 4+ Spare 20%",
+    startsAt: "2026-03-24T18:11:16.159Z",
+    customerGets: {
+      value: {
+        percentage: 0.20
+      },
+      items: {
+        products: {
+          productsToAdd: [
+            "gid://shopify/Product/10639381725527",
+            "gid://shopify/Product/10639381758295",
+            "gid://shopify/Product/10639381791063",
+            "gid://shopify/Product/10639381823831"
+          ]
+        }
+      }
+    },
+    minimumRequirement: {
+      quantity: {
+        greaterThanOrEqualToQuantity: "4"
+      }
+    }
+  }) {
+    automaticDiscountNode {
+      id
+      automaticDiscount {
+        ... on DiscountAutomaticBasic {
+          title
+          status
+          startsAt
+        }
+      }
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}

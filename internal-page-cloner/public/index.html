@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Blue Ocean Platform</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <h1>Blue Ocean Platform</h1>
+      <div class="store-selector">
+        <label>Store:</label>
+        <select id="store-select">
+          <option value="movanella">Movanella</option>
+          <option value="merivalo">Merivalo</option>
+        </select>
+        <script>
+          // Immediately restore last selected store (before any async loads)
+          (function() {
+            var saved = localStorage.getItem('selectedStore');
+            if (saved) document.getElementById('store-select').value = saved;
+          })();
+        </script>
+        <span id="store-status" class="store-connected">Connected</span>
+      </div>
+      <nav>
+        <button class="nav-btn active" data-view="clone">Clone Page</button>
+        <button class="nav-btn" data-view="research">Research</button>
+        <button class="nav-btn" data-view="jobs">Recent Jobs</button>
+        <button class="nav-btn" data-view="blocks">Block Library</button>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <!-- Clone View -->
+    <div id="view-clone" class="view active">
+      <div class="card">
+        <h2>Clone a Product Page</h2>
+        <p class="subtitle">Paste any product page URL and we'll automatically build a Shopify product with custom content, images, pricing — everything pushed and published in one go.</p>
+        <form id="clone-form">
+          <div class="input-group">
+            <input type="url" id="url-input" placeholder="https://example.com/products/some-product" required>
+            <button type="submit" id="clone-btn">Clone</button>
+          </div>
+          <div class="translate-group">
+            <label for="language-select">Translate to:</label>
+            <select id="language-select">
+              <option value="">Same language as source</option>
+              <option value="en">English</option>
+              <option value="de">German</option>
+              <option value="fr">French</option>
+              <option value="es">Spanish</option>
+              <option value="it">Italian</option>
+              <option value="nl">Dutch</option>
+            </select>
+            <span class="translate-hint" id="translate-hint"></span>
+          </div>
+        </form>
+      </div>
+
+      <!-- Progress -->
+      <div id="progress-card" class="card hidden">
+        <h2>Building your product page...</h2>
+        <div class="progress-bar">
+          <div class="progress-fill" id="progress-fill"></div>
+        </div>
+        <div class="steps" id="steps">
+          <div class="step" data-step="scraping">
+            <span class="step-icon">○</span>
+            <span class="step-label">Scraping page &amp; extracting product data</span>
+          </div>
+          <div class="step" data-step="generating">
+            <span class="step-icon">○</span>
+            <span class="step-label">AI generating custom content sections</span>
+          </div>
+          <div class="step" data-step="creating">
+            <span class="step-icon">○</span>
+            <span class="step-label">Creating product in Shopify</span>
+          </div>
+          <div class="step hidden" data-step="translating" id="step-translating">
+            <span class="step-icon">○</span>
+            <span class="step-label">Translating product images</span>
+          </div>
+          <div class="step" data-step="pushing">
+            <span class="step-icon">○</span>
+            <span class="step-label">Pushing template to theme</span>
+          </div>
+          <div class="step" data-step="publishing">
+            <span class="step-icon">○</span>
+            <span class="step-label">Publishing product</span>
+          </div>
+        </div>
+        <div id="screenshot-preview" class="hidden">
+          <h3>Source Page</h3>
+          <img id="screenshot-img" alt="Source page screenshot">
+        </div>
+      </div>
+
+      <!-- Result -->
+      <div id="result-card" class="card hidden">
+        <h2>Product Published!</h2>
+        <div class="result-info">
+          <div id="result-product-info"></div>
+          <div class="result-blocks" id="result-blocks"></div>
+        </div>
+        <div class="result-actions">
+          <button id="copy-btn" class="btn-secondary" onclick="copyLiquid()">Copy Liquid</button>
+          <button id="download-btn" class="btn-secondary" onclick="downloadLiquid()">Download .liquid</button>
+          <button id="preview-btn" class="btn-secondary" onclick="togglePreview()">Preview</button>
+        </div>
+        <div id="preview-area" class="hidden">
+          <h3>Generated Page Preview</h3>
+          <iframe id="preview-iframe" sandbox="allow-same-origin"></iframe>
+        </div>
+        <div id="code-area" class="hidden">
+          <h3>Raw Liquid Code</h3>
+          <pre id="code-content"></pre>
+        </div>
+      </div>
+
+      <!-- Error -->
+      <div id="error-card" class="card hidden error-card">
+        <h2>Error</h2>
+        <p id="error-message"></p>
+        <button onclick="resetClone()" class="btn-secondary">Try Again</button>
+      </div>
+    </div>
+
+    <!-- Research View -->
+    <div id="view-research" class="view">
+      <div class="card">
+        <div class="section-heading">
+          <div>
+            <h2>Product Research</h2>
+            <p class="subtitle">Run keyword research for Movanella, or add one keyword manually when you already know what to test.</p>
+          </div>
+          <span id="platform-status" class="status-pill status-loading">Checking platform...</span>
+        </div>
+
+        <div class="research-grid">
+          <form id="research-run-form" class="tool-panel">
+            <h3>Run keyword research</h3>
+            <p>Generate ideas, check Google Shopping competition, and create sourcing tasks.</p>
+            <div class="field-row">
+              <label for="keyword-count">Keywords</label>
+              <input type="number" id="keyword-count" min="1" max="100" value="25">
+            </div>
+            <button type="submit" class="btn-primary">Start research</button>
+          </form>
+
+          <form id="manual-keyword-form" class="tool-panel">
+            <h3>Add one keyword</h3>
+            <p>Skip AI ideation and analyze a single product keyword directly.</p>
+            <div class="field-row">
+              <label for="manual-keyword">Keyword</label>
+              <input type="text" id="manual-keyword" placeholder="portable blender">
+            </div>
+            <div class="field-row">
+              <label for="manual-price">Selling price</label>
+              <input type="number" id="manual-price" min="0" step="0.01" placeholder="Optional">
+            </div>
+            <button type="submit" class="btn-secondary">Analyze keyword</button>
+          </form>
+        </div>
+
+        <div id="research-message" class="message hidden"></div>
+      </div>
+
+      <div class="card">
+        <div class="section-heading">
+          <div>
+            <h2>Latest Keywords</h2>
+            <p class="subtitle">The newest researched products from the platform database.</p>
+          </div>
+          <button type="button" class="btn-secondary compact-btn" onclick="loadResearchKeywords()">Refresh</button>
+        </div>
+        <div id="keywords-list" class="keywords-list">
+          <p class="empty-state">No keywords loaded yet.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Jobs View -->
+    <div id="view-jobs" class="view">
+      <div class="card">
+        <h2>Recent Clone Jobs</h2>
+        <div id="jobs-list" class="jobs-list">
+          <p class="empty-state">No jobs yet. Clone your first page!</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Blocks View -->
+    <div id="view-blocks" class="view">
+      <div class="card">
+        <h2>Block Library</h2>
+        <p class="subtitle">These are the reusable blocks that pages are built from.</p>
+        <div id="blocks-list" class="blocks-list"></div>
+      </div>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

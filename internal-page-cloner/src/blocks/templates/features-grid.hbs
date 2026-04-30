@@ -1,0 +1,24 @@
+  <h2 class="pcc-section-title">{{sectionTitle}}</h2>
+  <div class="pcc-features">
+    <div class="pcc-feature-col">
+      {{#each leftFeatures}}
+      <div class="pcc-feature">
+        {{{icon}}}
+        <h3>{{title}}</h3>
+        <p>{{description}}</p>
+      </div>
+      {{/each}}
+    </div>
+    <div>
+      <img class="pcc-features-img" style="width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:12px;" src="{{centerImage}}" alt="{{centerImageAlt}}" loading="lazy" />
+    </div>
+    <div class="pcc-feature-col">
+      {{#each rightFeatures}}
+      <div class="pcc-feature">
+        {{{icon}}}
+        <h3>{{title}}</h3>
+        <p>{{description}}</p>
+      </div>
+      {{/each}}
+    </div>
+  </div>

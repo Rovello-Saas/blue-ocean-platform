@@ -1,0 +1,51 @@
+<style>
+  .pcc-wrapper { max-width: 100%; margin: 0 auto; padding: 0 40px; }
+  .pcc-section-title { font-size: 32px; font-weight: 700; text-align: center; margin-bottom: 50px; color: #1a1a1a; }
+
+  /* Features Grid */
+  .pcc-features { display: grid; grid-template-columns: 1fr 1.8fr 1fr; gap: 40px; align-items: center; }
+  .pcc-feature-col { display: flex; flex-direction: column; gap: 50px; }
+  .pcc-feature { text-align: center; }
+  .pcc-feature svg { display: block; margin: 0 auto 18px; }
+  .pcc-feature h3 { font-size: 15px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; margin: 0 0 12px; color: #1a1a1a; }
+  .pcc-feature p { font-size: 15px; color: #666; line-height: 1.7; margin: 0; }
+  .pcc-features-img { width: 100%; border-radius: 12px; aspect-ratio: 3/4; object-fit: cover; }
+
+  /* Content Rows */
+  .pcc-row { display: grid; grid-template-columns: 1fr 1fr; gap: 50px; align-items: center; margin-top: 80px; }
+  .pcc-row img { width: 100%; border-radius: 8px; }
+  .pcc-row-text h2 { font-size: 28px; font-weight: 700; color: #1a1a1a; margin: 0 0 16px; }
+  .pcc-row-text p { font-size: 16px; color: #555; line-height: 1.7; margin: 0; }
+
+  /* Trust Badges */
+  .pcc-trust { margin-top: 80px; padding: 50px 20px; background: #f7f7f7; border-radius: 12px; text-align: center; }
+  .pcc-trust h2 { font-size: 24px; font-weight: 700; color: #1a1a1a; margin: 0 0 35px; }
+  .pcc-trust-grid { display: grid !important; grid-template-columns: repeat(3, 1fr) !important; gap: 30px; }
+  .pcc-trust-item { text-align: center; }
+  .pcc-trust-item img { display: block; margin: 0 auto 10px; width: 40px !important; height: 40px !important; }
+  .pcc-trust-item h3 { font-size: 15px; font-weight: 700; color: #1a1a1a; margin: 0 0 4px; }
+  .pcc-trust-item p { font-size: 13px; color: #888; margin: 0; }
+
+  @media (max-width: 768px) {
+    .pcc-wrapper { padding: 0 20px; }
+    .pcc-section-title { font-size: 26px; margin-bottom: 30px; }
+    .pcc-features { grid-template-columns: 1fr; gap: 30px; }
+    .pcc-features > div:nth-child(2) { order: -1; }
+    .pcc-feature-col { flex-direction: row; gap: 20px; }
+    .pcc-feature-col .pcc-feature { flex: 1; }
+    .pcc-feature svg { width: 36px; height: 36px; margin-bottom: 10px; }
+    .pcc-feature h3 { font-size: 12px; letter-spacing: 1px; margin: 0 0 6px; }
+    .pcc-feature p { display: none; }
+    .pcc-row { grid-template-columns: 1fr; gap: 20px; }
+    .pcc-row.pcc-row-reverse { direction: ltr; }
+    .pcc-row-text { text-align: center; }
+    .pcc-row-text h2 { font-size: 22px; }
+    .pcc-row-text p { font-size: 15px; }
+    .pcc-trust { padding: 30px 15px; }
+    .pcc-trust h2 { font-size: 20px; margin-bottom: 20px; }
+    .pcc-trust-grid { display: grid !important; grid-template-columns: repeat(3, 1fr) !important; gap: 10px !important; }
+    .pcc-trust-item img { width: 28px; height: 28px; }
+    .pcc-trust-item h3 { font-size: 11px; }
+    .pcc-trust-item p { display: none; }
+  }
+</style>

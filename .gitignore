@@ -38,6 +38,26 @@ Thumbs.db
 *.log
 logs/
 
+# Internal page cloner runtime
+internal-page-cloner/.env
+internal-page-cloner/node_modules/
+internal-page-cloner/.install-complete
+internal-page-cloner/data/jobs/
+internal-page-cloner/data/output/
+internal-page-cloner/data/cost-log.jsonl
+.cache/
+!internal-page-cloner/
+!internal-page-cloner/.env.example
+!internal-page-cloner/package.json
+!internal-page-cloner/package-lock.json
+!internal-page-cloner/**/*.js
+!internal-page-cloner/**/*.hbs
+!internal-page-cloner/**/*.liquid
+!internal-page-cloner/**/*.graphql
+!internal-page-cloner/**/*.css
+!internal-page-cloner/**/*.html
+!internal-page-cloner/**/*.json
+
 # Streamlit (keep config.toml for deployment)
 .streamlit/secrets.toml
 

@@ -1,0 +1,235 @@
+{
+  "sections": {
+    "main": {
+      "type": "product-information",
+      "blocks": {
+        "media-gallery": {
+          "type": "_product-media-gallery",
+          "static": true,
+          "settings": {
+            "media_presentation": "grid",
+            "media_columns": "two",
+            "image_gap": 4,
+            "large_first_image": false,
+            "icons_style": "none",
+            "slideshow_controls_style": "counter",
+            "slideshow_mobile_controls_style": "dots",
+            "thumbnail_position": "right",
+            "thumbnail_width": 44,
+            "thumbnail_radius": 0,
+            "aspect_ratio": "adapt",
+            "constrain_to_viewport": true,
+            "media_fit": "contain",
+            "media_radius": 12,
+            "extend_media": true,
+            "zoom": true,
+            "video_loop": false,
+            "hide_variants": true,
+            "padding-block-start": 0,
+            "padding-block-end": 0,
+            "padding-inline-start": 0,
+            "padding-inline-end": 0
+          },
+          "blocks": {}
+        },
+        "product-details": {
+          "type": "_product-details",
+          "static": true,
+          "settings": {
+            "width": "fill",
+            "custom_width": 100,
+            "width_mobile": "fill",
+            "custom_width_mobile": 100,
+            "height": "fit",
+            "details_position": "flex-start",
+            "gap": 28,
+            "sticky_details_desktop": true,
+            "inherit_color_scheme": true,
+            "color_scheme": "scheme-1",
+            "background_media": "none",
+            "video_position": "cover",
+            "background_image_position": "cover",
+            "border": "none",
+            "border_width": 1,
+            "border_opacity": 100,
+            "border_radius": 0,
+            "padding-block-start": 0,
+            "padding-block-end": 24,
+            "padding-inline-start": 0,
+            "padding-inline-end": 0
+          },
+          "blocks": {
+            "group_header": {
+              "type": "group",
+              "name": "Header",
+              "settings": {
+                "content_direction": "column",
+                "vertical_on_mobile": true,
+                "horizontal_alignment": "flex-start",
+                "vertical_alignment": "center",
+                "align_baseline": false,
+                "horizontal_alignment_flex_direction_column": "flex-start",
+                "vertical_alignment_flex_direction_column": "center",
+                "gap": 12,
+                "width": "fill",
+                "custom_width": 100,
+                "width_mobile": "fill",
+                "custom_width_mobile": 100,
+                "height": "fit",
+                "inherit_color_scheme": true,
+                "background_media": "none",
+                "border": "none",
+                "padding-block-start": 0,
+                "padding-block-end": 0,
+                "padding-inline-start": 0,
+                "padding-inline-end": 0
+              },
+              "blocks": {
+                "title_block": {
+                  "type": "text",
+                  "name": "Product title",
+                  "settings": {
+                    "text": "<h5>{{ closest.product.title }}</h5>",
+                    "width": "100%",
+                    "max_width": "normal",
+                    "alignment": "left",
+                    "type_preset": "custom",
+                    "font": "var(--font-subheading--family)",
+                    "font_size": "1.25rem",
+                    "line_height": "normal",
+                    "letter_spacing": "normal",
+                    "case": "none",
+                    "wrap": "pretty",
+                    "color": "var(--color-foreground)",
+                    "background": false,
+                    "padding-block-start": 0,
+                    "padding-block-end": 0,
+                    "padding-inline-start": 0,
+                    "padding-inline-end": 0
+                  },
+                  "blocks": {}
+                },
+                "price_block": {
+                  "type": "price",
+                  "settings": {
+                    "show_sale_price_first": true,
+                    "show_installments": false,
+                    "show_tax_info": false,
+                    "type_preset": "custom",
+                    "width": "fit-content",
+                    "alignment": "left",
+                    "font": "var(--font-heading--family)",
+                    "font_size": "1rem",
+                    "line_height": "normal",
+                    "letter_spacing": "normal",
+                    "case": "none",
+                    "color": "var(--color-foreground)",
+                    "padding-block-start": 12,
+                    "padding-block-end": 12,
+                    "padding-inline-start": 0,
+                    "padding-inline-end": 0
+                  },
+                  "blocks": {}
+                },
+                "description_block": {
+                  "type": "product-description",
+                  "name": "Product description",
+                  "settings": {
+                    "text": "{{ closest.product.description }}",
+                    "width": "fit-content",
+                    "max_width": "normal",
+                    "alignment": "left",
+                    "type_preset": "rte",
+                    "font": "var(--font-body--family)",
+                    "font_size": "1rem",
+                    "line_height": "normal",
+                    "letter_spacing": "normal",
+                    "case": "none",
+                    "wrap": "pretty",
+                    "color": "var(--color-foreground)",
+                    "background": false,
+                    "padding-block-start": 0,
+                    "padding-block-end": 0,
+                    "padding-inline-start": 0,
+                    "padding-inline-end": 0
+                  },
+                  "blocks": {}
+                }
+              },
+              "block_order": [
+                "title_block",
+                "price_block",
+                "description_block"
+              ]
+            },
+            "variant_picker": {
+              "type": "variant-picker",
+              "settings": {
+                "variant_style": "buttons",
+                "show_swatches": false,
+                "alignment": "left",
+                "padding-block-start": 0,
+                "padding-block-end": 0,
+                "padding-inline-start": 0,
+                "padding-inline-end": 0
+              },
+              "blocks": {}
+            },
+            "buy_buttons": {
+              "type": "buy-buttons",
+              "settings": {
+                "stacking": true,
+                "show_pickup_availability": false,
+                "gift_card_form": true,
+                "padding-block-start": 0,
+                "padding-block-end": 0,
+                "padding-inline-start": 0,
+                "padding-inline-end": 0
+              },
+              "blocks": {
+                "quantity": {
+                  "type": "quantity",
+                  "disabled": true,
+                  "static": true,
+                  "settings": {},
+                  "blocks": {}
+                },
+                "add-to-cart": {
+                  "type": "add-to-cart",
+                  "static": true,
+                  "settings": {
+                    "style_class": "button"
+                  },
+                  "blocks": {}
+                },
+                "accelerated-checkout": {
+                  "type": "accelerated-checkout",
+                  "static": true,
+                  "settings": {},
+                  "blocks": {}
+                }
+              },
+              "block_order": []
+            }
+          },
+          "block_order": [
+            "group_header",
+            "variant_picker",
+            "buy_buttons"
+          ]
+        }
+      },
+      "settings": {}
+    },
+    "custom_liquid_cloned": {
+      "type": "custom-liquid",
+      "settings": {
+        "custom_liquid": "<style>\n  /* =============================================\n     SUPPORT PILLOW CONTENT — Ergonomic pillow clone\n     Prefix: skc-\n  ============================================= */\n\n  .skc-wrap { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1b2d5b; }\n\n  /* --- 1. TRUST BAR --- */\n  .skc-trust-bar {\n    background: #1b2d5b;\n    padding: 14px 20px;\n    display: flex;\n    justify-content: center;\n    align-items: center;\n    gap: 60px;\n    flex-wrap: wrap;\n  }\n  .skc-trust-bar span {\n    color: #fff;\n    font-size: 14px;\n    font-weight: 600;\n    letter-spacing: 0.3px;\n  }\n  .skc-trust-bar span::before { content: \"✓ \"; color: #fff; }\n\n  /* --- 2. FIVE FEATURES (matches Snoozity layout) --- */\n  .skc-features {\n    padding: 40px 20px;\n    background: #fff;\n  }\n  .skc-features-grid {\n    display: grid;\n    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));\n    gap: 20px;\n    max-width: 1200px;\n    margin: 0 auto;\n  }\n  .skc-feature-item {\n    border-radius: 8px;\n    padding: 20px;\n    background: #fff;\n    text-align: left;\n  }\n  .skc-feature-img-wrap {\n    text-align: center;\n    margin-bottom: 15px;\n  }\n  .skc-feature-img-wrap img {\n    max-width: 100%;\n    height: auto;\n  }\n  .skc-feature-item h3 {\n    font-size: 16px;\n    font-weight: 700;\n    margin-bottom: 12px;\n    text-align: center;\n    color: #0d1a42;\n    text-transform: uppercase;\n  }\n  .skc-feature-item ul {\n    list-style: none;\n    padding: 0;\n    margin: 0;\n  }\n  .skc-feature-item ul li {\n    font-size: 16px;\n    color: rgba(50, 61, 101, 0.9);\n    padding: 4px 0 4px 34px;\n    position: relative;\n    line-height: 1.8;\n  }\n  .skc-feature-item ul li::before {\n    content: \"\";\n    position: absolute;\n    left: 0;\n    top: 50%;\n    transform: translateY(-50%);\n    width: 20px;\n    height: 20px;\n    background-image: url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='12' cy='12' r='12' fill='%230d47a1'/><path d='M6 12l4 4 8-8' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>\");\n    background-size: contain;\n    background-repeat: no-repeat;\n    background-position: center;\n  }\n\n  /* --- 3. DARK HERO --- */\n  .skc-hero {\n    background: #1b2d5b;\n    display: grid;\n    grid-template-columns: 1fr 1fr;\n    align-items: center;\n    min-height: 420px;\n  }\n  .skc-hero-text { padding: 60px 60px 60px 80px; }\n  .skc-hero-text h2 {\n    font-size: 42px;\n    font-weight: 800;\n    color: #fff;\n    margin: 0 0 24px;\n    line-height: 1.15;\n  }\n  .skc-hero-text p {\n    font-size: 16px;\n    color: rgba(255,255,255,0.85);\n    margin: 0 0 24px;\n    line-height: 1.7;\n  }\n  .skc-hero-text ul {\n    list-style: none;\n    padding: 0; margin: 0;\n  }\n  .skc-hero-text ul li {\n    font-size: 15px;\n    color: rgba(255,255,255,0.9);\n    padding: 6px 0 6px 28px;\n    position: relative;\n  }\n  .skc-hero-text ul li::before {\n    content: \"✓\";\n    position: absolute; left: 0;\n    color: #60a5fa;\n    font-size: 16px;\n    font-weight: 700;\n  }\n  .skc-hero-img { position: relative; height: 100%; min-height: 420px; }\n  .skc-hero-img img { width: 100%; height: 100%; object-fit: cover; }\n\n  /* --- 4. USE CASES GRID --- */\n  .skc-usecases {\n    padding: 70px 40px;\n    background: #fff;\n    text-align: center;\n  }\n  .skc-usecases h2 {\n    font-size: 32px;\n    font-weight: 800;\n    color: #1b2d5b;\n    margin: 0 0 48px;\n  }\n  .skc-usecases-grid {\n    display: grid;\n    grid-template-columns: repeat(4, 1fr);\n    gap: 20px;\n    max-width: 1100px;\n    margin: 0 auto;\n  }\n  .skc-usecase-card img {\n    width: 100%;\n    aspect-ratio: 1;\n    object-fit: cover;\n    border-radius: 16px;\n  }\n  .skc-usecase-card h4 {\n    font-size: 13px;\n    font-weight: 800;\n    letter-spacing: 1.5px;\n    text-transform: uppercase;\n    color: #1b2d5b;\n    margin: 14px 0 0;\n  }\n\n  /* --- 5. DARK STATS --- */\n  .skc-stats-section {\n    background: #1b2d5b;\n    display: grid;\n    grid-template-columns: 1fr 1fr;\n    align-items: center;\n    padding: 0;\n  }\n  .skc-stats-left { padding: 60px 60px 60px 80px; }\n  .skc-stats-left h2 {\n    font-size: 30px;\n    font-weight: 800;\n    color: #fff;\n    margin: 0 0 20px;\n    line-height: 1.3;\n  }\n  .skc-stats-left p {\n    font-size: 15px;\n    color: rgba(255,255,255,0.8);\n    line-height: 1.7;\n    margin: 0 0 28px;\n  }\n  .skc-stats-left strong { color: #fff; }\n  .skc-stats-img { margin-top: 20px; }\n  .skc-stats-img img { width: 100%; border-radius: 12px; max-width: 360px; }\n  .skc-stats-right { padding: 60px 80px 60px 40px; }\n  .skc-stat-row {\n    display: grid;\n    grid-template-columns: 100px 1fr;\n    align-items: center;\n    gap: 20px;\n    padding: 18px 0;\n    border-bottom: 1px solid rgba(255,255,255,0.1);\n  }\n  .skc-stat-row:last-child { border-bottom: none; }\n  .skc-circle {\n    width: 80px; height: 80px;\n    position: relative;\n    flex-shrink: 0;\n  }\n  .skc-circle svg { width: 80px; height: 80px; transform: rotate(-90deg); }\n  .skc-circle-track { fill: none; stroke: rgba(255,255,255,0.15); stroke-width: 7; }\n  .skc-circle-fill { fill: none; stroke: #fff; stroke-width: 7; stroke-linecap: round; }\n  .skc-circle-num {\n    position: absolute;\n    top: 50%; left: 50%;\n    transform: translate(-50%,-50%);\n    font-size: 16px;\n    font-weight: 800;\n    color: #fff;\n  }\n  .skc-stat-text h4 {\n    font-size: 15px;\n    font-weight: 700;\n    color: #fff;\n    margin: 0 0 6px;\n  }\n  .skc-stat-text p {\n    font-size: 13px;\n    color: rgba(255,255,255,0.75);\n    margin: 0;\n    line-height: 1.5;\n  }\n\n  /* --- 6. REVIEWS --- */\n  .skc-reviews {\n    padding: 70px 40px;\n    background: #fff;\n    text-align: center;\n  }\n  .skc-reviews h2 {\n    font-size: 26px;\n    font-weight: 900;\n    letter-spacing: 2px;\n    text-transform: uppercase;\n    color: #1b2d5b;\n    margin: 0 0 48px;\n  }\n  .skc-reviews-grid {\n    display: grid;\n    grid-template-columns: repeat(3, 1fr);\n    gap: 28px;\n    max-width: 1100px;\n    margin: 0 auto;\n    text-align: left;\n  }\n  .skc-review-card {\n    border: 1px solid #e5e7eb;\n    border-radius: 16px;\n    padding: 28px;\n    position: relative;\n  }\n  .skc-review-photo {\n    width: 100%;\n    aspect-ratio: 4/3;\n    object-fit: cover;\n    border-radius: 10px;\n    margin-bottom: 16px;\n  }\n  .skc-review-quote {\n    position: absolute;\n    top: 16px; right: 16px;\n    width: 40px; height: 40px;\n    background: #1b2d5b;\n    border-radius: 50%;\n    display: flex; align-items: center; justify-content: center;\n    color: #fff;\n    font-size: 18px;\n    font-weight: 900;\n  }\n  .skc-stars { color: #f59e0b; font-size: 18px; margin-bottom: 10px; }\n  .skc-review-card h4 {\n    font-size: 16px;\n    font-weight: 800;\n    color: #1b2d5b;\n    margin: 0 0 10px;\n    text-transform: uppercase;\n    letter-spacing: 0.5px;\n  }\n  .skc-review-card p { font-size: 14px; color: #4b5563; line-height: 1.7; margin: 0 0 12px; }\n  .skc-review-card .skc-reviewer { font-size: 13px; font-weight: 600; color: #6b7280; font-style: italic; }\n\n  /* --- 7. COMPARISON TABLE --- */\n  .skc-compare {\n    padding: 70px 40px;\n    background: #f8f9ff;\n  }\n  .skc-compare-inner {\n    display: grid;\n    grid-template-columns: 1fr 1fr;\n    gap: 60px;\n    max-width: 1100px;\n    margin: 0 auto;\n    align-items: center;\n  }\n  .skc-compare-text h2 {\n    font-size: 32px;\n    font-weight: 800;\n    color: #1b2d5b;\n    margin: 0 0 16px;\n    line-height: 1.3;\n  }\n  .skc-compare-text p { font-size: 15px; color: #4b5563; line-height: 1.7; }\n  .skc-compare-text strong { color: #1b2d5b; }\n  .skc-table { width: 100%; border-collapse: collapse; }\n  .skc-table thead th {\n    padding: 14px 20px;\n    font-size: 14px;\n    font-weight: 700;\n    color: #1b2d5b;\n    text-align: center;\n  }\n  .skc-table thead th:first-child { text-align: left; }\n  .skc-table tbody tr:nth-child(odd) { background: #fff; }\n  .skc-table tbody tr:nth-child(even) { background: #f0f4ff; }\n  .skc-table tbody td {\n    padding: 14px 20px;\n    font-size: 14px;\n    font-weight: 600;\n    color: #1b2d5b;\n    text-align: center;\n  }\n  .skc-table tbody td:first-child { text-align: left; border-radius: 8px 0 0 8px; }\n  .skc-table tbody td:last-child { border-radius: 0 8px 8px 0; }\n  .skc-check { color: #16a34a; font-size: 20px; font-weight: 900; }\n  .skc-cross { color: #dc2626; font-size: 20px; }\n  .skc-col-ours { background: #1b2d5b !important; color: #fff !important; border-radius: 0 !important; }\n  .skc-col-ours .skc-check { color: #86efac; }\n\n  /* --- 8. PHOTO STRIP --- */\n  .skc-photo-strip {\n    display: grid;\n    grid-template-columns: repeat(5, 1fr);\n    gap: 0;\n  }\n  .skc-photo-strip img {\n    width: 100%;\n    aspect-ratio: 3/4;\n    object-fit: cover;\n    display: block;\n  }\n\n  /* --- 9. EXPERTS --- */\n  .skc-experts {\n    padding: 70px 40px;\n    background: #fff;\n  }\n  .skc-experts h2 {\n    font-size: 28px;\n    font-weight: 800;\n    color: #1b2d5b;\n    margin: 0 0 48px;\n    text-align: center;\n    max-width: 700px;\n    margin-left: auto;\n    margin-right: auto;\n  }\n  .skc-experts-grid {\n    display: grid;\n    grid-template-columns: repeat(3, 1fr);\n    gap: 40px;\n    max-width: 1100px;\n    margin: 0 auto;\n  }\n  .skc-expert-img {\n    width: 100%;\n    aspect-ratio: 4/5;\n    object-fit: cover;\n    border-radius: 12px;\n    margin-bottom: 20px;\n    filter: grayscale(100%);\n  }\n  .skc-expert-quote {\n    font-size: 14px;\n    color: #4b5563;\n    line-height: 1.7;\n    font-style: italic;\n    margin: 0 0 16px;\n  }\n  .skc-expert-name {\n    font-size: 14px;\n    font-weight: 700;\n    color: #1b2d5b;\n    margin: 0 2px 2px;\n    display: flex;\n    align-items: center;\n    gap: 6px;\n  }\n  .skc-expert-name svg { width: 18px; height: 18px; fill: #2563eb; flex-shrink: 0; }\n  .skc-expert-title { font-size: 13px; color: #6b7280; margin: 0; }\n\n  /* --- 10. FAQ --- */\n  .skc-faq {\n    padding: 70px 40px;\n    background: #f8f9ff;\n    max-width: 800px;\n    margin: 0 auto;\n  }\n  .skc-faq h2 {\n    font-size: 32px;\n    font-weight: 800;\n    color: #1b2d5b;\n    text-align: center;\n    margin: 0 0 40px;\n  }\n  .skc-faq-item {\n    border-bottom: 1px solid #e5e7eb;\n  }\n  .skc-faq-q {\n    width: 100%;\n    text-align: left;\n    background: none;\n    border: none;\n    padding: 20px 0;\n    font-size: 16px;\n    font-weight: 600;\n    color: #1b2d5b;\n    cursor: pointer;\n    display: flex;\n    justify-content: space-between;\n    align-items: center;\n  }\n  .skc-faq-q::after {\n    content: \"∨\";\n    font-size: 20px;\n    color: #1b2d5b;\n    transition: transform 0.3s;\n    flex-shrink: 0;\n  }\n  .skc-faq-item.open .skc-faq-q::after { transform: rotate(180deg); }\n  .skc-faq-a {\n    display: none;\n    padding: 0 0 20px;\n    font-size: 15px;\n    color: #4b5563;\n    line-height: 1.75;\n  }\n  .skc-faq-item.open .skc-faq-a { display: block; }\n\n  /* --- MOBILE --- */\n  @media (max-width: 749px) {\n    .skc-trust-bar { gap: 16px; padding: 12px 16px; flex-direction: column; align-items: flex-start; }\n    .skc-features-grid { grid-template-columns: 1fr 1fr; gap: 12px; }\n    .skc-features-grid .skc-feature-item:last-child { grid-column: 1 / -1; max-width: 50%; margin: 0 auto; }\n    .skc-features { padding: 30px 12px; }\n    .skc-feature-item { padding: 16px 12px; }\n    .skc-feature-item h3 { font-size: 14px; }\n    .skc-feature-item ul li { font-size: 14px; line-height: 1.7; padding-left: 30px; }\n    .skc-hero { grid-template-columns: 1fr; }\n    .skc-hero-text { padding: 40px 24px; }\n    .skc-hero-text h2 { font-size: 28px; }\n    .skc-hero-img { min-height: 260px; }\n    .skc-usecases { padding: 40px 20px; }\n    .skc-usecases-grid { grid-template-columns: repeat(2, 1fr); }\n    .skc-stats-section { grid-template-columns: 1fr; }\n    .skc-stats-left { padding: 40px 24px 20px; }\n    .skc-stats-right { padding: 20px 24px 40px; }\n    .skc-reviews { padding: 40px 20px; }\n    .skc-reviews-grid { grid-template-columns: 1fr; }\n    .skc-compare { padding: 40px 20px; }\n    .skc-compare-inner { grid-template-columns: 1fr; gap: 32px; }\n    .skc-photo-strip { grid-template-columns: repeat(3, 1fr); }\n    .skc-photo-strip img:nth-child(n+4) { display: none; }\n    .skc-experts { padding: 40px 20px; }\n    .skc-experts-grid { grid-template-columns: 1fr; }\n    .skc-faq { padding: 40px 20px; }\n  }\n</style>\n\n<div class=\"skc-wrap\">\n\n  <!-- ===== 1. TRUST BAR ===== -->\n  <div class=\"skc-trust-bar\">\n    <span>Ergonomically Designed</span>\n    <span>1,000+ Happy Customers</span>\n    <span>30-Day Returns</span>\n  </div>\n\n  <!-- ===== 2. FIVE ANNOTATED FEATURES ===== -->\n  <section class=\"skc-features\">\n    <div class=\"skc-features-grid\">\n\n      <div class=\"skc-feature-item\">\n        <div class=\"skc-feature-img-wrap\">\n          <img src=\"https://snoozity.nl/cdn/shop/files/gempages_576690581959344994-87086e4c-4a49-4499-827f-bb4846d27eea.avif?v=1757650107&width=300\" alt=\"Comfortable Arm Support\" />\n        </div>\n        <h3>Comfortable Arm Support</h3>\n        <ul>\n          <li>No tingling or numb arms</li>\n          <li>Comfortable in every sleep position</li>\n          <li>Relaxation without pressure points</li>\n        </ul>\n      </div>\n\n      <div class=\"skc-feature-item\">\n        <div class=\"skc-feature-img-wrap\">\n          <img src=\"https://snoozity.nl/cdn/shop/files/gempages_576690581959344994-b69d1f01-6738-4b59-85e3-e58e9ab27d0b.avif?v=1757650107&width=300\" alt=\"Supportive Neck Wings\" />\n        </div>\n        <h3>Supportive Neck Wings</h3>\n        <ul>\n          <li>Correct spinal alignment</li>\n          <li>Less tension in neck and shoulders</li>\n          <li>Relax deeper, sleep more peacefully</li>\n        </ul>\n      </div>\n\n      <div class=\"skc-feature-item\">\n        <div class=\"skc-feature-img-wrap\">\n          <img src=\"https://snoozity.nl/cdn/shop/files/gempages_576690581959344994-87086e4c-4a49-4499-827f-bb4846d27eea.avif?v=1757650107&width=300\" alt=\"Ergonomic Central Core\" />\n        </div>\n        <h3>Ergonomic Central Core</h3>\n        <ul>\n          <li>Stable support for neck and chin</li>\n          <li>Always maintains its shape</li>\n          <li>Optimal pressure distribution for maximum comfort</li>\n        </ul>\n      </div>\n\n      <div class=\"skc-feature-item\">\n        <div class=\"skc-feature-img-wrap\">\n          <img src=\"https://snoozity.nl/cdn/shop/files/gempages_576690581959344994-87086e4c-4a49-4499-827f-bb4846d27eea.avif?v=1757650107&width=300\" alt=\"Supportive Back Wings\" />\n        </div>\n        <h3>Supportive Back Wings</h3>\n        <ul>\n          <li>Keeps your neck in the right position</li>\n          <li>Prevents tossing and turning in bed</li>\n          <li>Soft, yet firm where it counts</li>\n        </ul>\n      </div>\n\n      <div class=\"skc-feature-item\">\n        <div class=\"skc-feature-img-wrap\">\n          <img src=\"https://snoozity.nl/cdn/shop/files/gempages_576690581959344994-c594b5a1-e02a-443a-8819-c914defc5666.avif?v=1757650107&width=300\" alt=\"Shoulder Relief\" />\n        </div>\n        <h3>Shoulder Relief</h3>\n        <ul>\n          <li>Relieves tension in neck and shoulders</li>\n          <li>Promotes faster muscle recovery</li>\n          <li>Supports a healthy, upright posture</li>\n        </ul>\n      </div>\n\n    </div>\n  </section>\n\n  <!-- ===== 3. DARK HERO ===== -->\n  <section class=\"skc-hero\">\n    <div class=\"skc-hero-text\">\n      <h2>Relax Your Neck.</h2>\n      <p>Our support pillow gives new meaning to comfortable sleeping — something you may have never experienced before.</p>\n      <ul>\n        <li>Relaxed neck muscles, without tension</li>\n        <li>Correct spinal alignment</li>\n        <li>Soft and luxurious comfort</li>\n      </ul>\n    </div>\n    <div class=\"skc-hero-img\">\n      <img src=\"https://snoozity.nl/cdn/shop/files/gempages_576690581959344994-5376599d-1d90-4df9-b831-525079eacec3.webp\" alt=\"Woman sleeping comfortably on support pillow\" />\n    </div>\n  </section>\n\n  <!-- ===== 4. USE CASES GRID ===== -->\n  <section class=\"skc-usecases\">\n    <h2>Full Support in Every Position.</h2>\n    <div class=\"skc-usecases-grid\">\n      <div class=\"skc-usecase-card\">\n        <img src=\"https://snoozity.nl/cdn/shop/files/gempages_576690581959344994-70c59270-4563-4d1e-bccb-faba200715d4.webp\" alt=\"Side sleepers\" />\n        <h4>Side</h4>\n      </div>\n      <div class=\"skc-usecase-card\">\n        <img src=\"https://snoozity.nl/cdn/shop/files/gempages_576690581959344994-86c25314-cc08-4a37-ac34-85e4fb632732.webp\" alt=\"Back sleepers\" />\n        <h4>Back</h4>\n      </div>\n      <div class=\"skc-usecase-card\">\n        <img src=\"https://snoozity.nl/cdn/shop/files/gempages_576690581959344994-e6c303f6-1c2f-4fe8-b1a9-54ecda4e2939.webp\" alt=\"Stomach sleepers\" />\n        <h4>Stomach</h4>\n      </div>\n      <div class=\"skc-usecase-card\">\n        <img src=\"https://snoozity.nl/cdn/shop/files/gempages_576690581959344994-fba648df-8f1d-45d8-9d70-5f90944bb179.webp\" alt=\"Always on the move\" />\n        <h4>Always Moving</h4>\n      </div>\n    </div>\n  </section>\n\n  <!-- ===== 5. DARK STATS SECTION ===== -->\n  <section class=\"skc-stats-section\">\n    <div class=\"skc-stats-left\">\n      <h2>The only pillow that tackles neck pain and morning stiffness at the source.</h2>\n      <p>We asked more than <strong>1,000 customers</strong> about their experience with our ergonomic support pillow.<br>These are the results:</p>\n      <div class=\"skc-stats-img\">\n        <img src=\"https://snoozity.nl/cdn/shop/files/v0103895_030_mkt2.jpg\" alt=\"Happy customer with support pillow\" />\n      </div>\n    </div>\n    <div class=\"skc-stats-right\">\n\n      <div class=\"skc-stat-row\">\n        <div class=\"skc-circle\">\n          <svg viewBox=\"0 0 80 80\">\n            <circle class=\"skc-circle-track\" cx=\"40\" cy=\"40\" r=\"33\"/>\n            <circle class=\"skc-circle-fill\" cx=\"40\" cy=\"40\" r=\"33\" stroke-dasharray=\"207 14\" />\n          </svg>\n          <div class=\"skc-circle-num\">98%</div>\n        </div>\n        <div class=\"skc-stat-text\">\n          <h4>Wake Up Without Neck Pain</h4>\n          <p>A well-aligned neck means rest for your entire body. Start your day fresh and pain-free.</p>\n        </div>\n      </div>\n\n      <div class=\"skc-stat-row\">\n        <div class=\"skc-circle\">\n          <svg viewBox=\"0 0 80 80\">\n            <circle class=\"skc-circle-track\" cx=\"40\" cy=\"40\" r=\"33\"/>\n            <circle class=\"skc-circle-fill\" cx=\"40\" cy=\"40\" r=\"33\" stroke-dasharray=\"196 25\" />\n          </svg>\n          <div class=\"skc-circle-num\">94%</div>\n        </div>\n        <div class=\"skc-stat-text\">\n          <h4>Address the Root Cause</h4>\n          <p>Neck pain and headaches are often caused by poor sleep posture. Prevent it with the right support.</p>\n        </div>\n      </div>\n\n      <div class=\"skc-stat-row\">\n        <div class=\"skc-circle\">\n          <svg viewBox=\"0 0 80 80\">\n            <circle class=\"skc-circle-track\" cx=\"40\" cy=\"40\" r=\"33\"/>\n            <circle class=\"skc-circle-fill\" cx=\"40\" cy=\"40\" r=\"33\" stroke-dasharray=\"201 20\" />\n          </svg>\n          <div class=\"skc-circle-num\">96%</div>\n        </div>\n        <div class=\"skc-stat-text\">\n          <h4>Finally Sleep Through the Night</h4>\n          <p>No more endless tossing or readjusting your pillow. Just deep, uninterrupted sleep until morning.</p>\n        </div>\n      </div>\n\n      <div class=\"skc-stat-row\">\n        <div class=\"skc-circle\">\n          <svg viewBox=\"0 0 80 80\">\n            <circle class=\"skc-circle-track\" cx=\"40\" cy=\"40\" r=\"33\"/>\n            <circle class=\"skc-circle-fill\" cx=\"40\" cy=\"40\" r=\"33\" stroke-dasharray=\"203 18\" />\n          </svg>\n          <div class=\"skc-circle-num\">97%</div>\n        </div>\n        <div class=\"skc-stat-text\">\n          <h4>Specially Designed for Your Neck</h4>\n          <p>When your neck is properly supported, the aches disappear. Wake up fresh and free.</p>\n        </div>\n      </div>\n\n    </div>\n  </section>\n\n  <!-- ===== 6. REVIEWS ===== -->\n  <section class=\"skc-reviews\">\n    <h2>Real People. Real Results.</h2>\n    <div class=\"skc-reviews-grid\">\n\n      <div class=\"skc-review-card\">\n        <img class=\"skc-review-photo\" src=\"https://thumbs.dreamstime.com/b/beautiful-african-american-woman-relaxing-outside-happy-middle-aged-smiling-46298787.jpg\" alt=\"Customer review\" />\n        <div class=\"skc-review-quote\">&#8220;</div>\n        <div class=\"skc-stars\">★★★★★</div>\n        <h4>The BEST decision I've ever made for my neck.</h4>\n        <p>After years of waking up with a stiff neck, I've finally found <strong>the solution</strong>. This pillow supports exactly where it needs to, so I wake up completely pain-free. <strong>A must-have</strong> for anyone who values a <em>truly restorative night's sleep</em>.</p>\n        <span class=\"skc-reviewer\">— Martin B.</span>\n      </div>\n\n      <div class=\"skc-review-card\">\n        <img class=\"skc-review-photo\" src=\"https://img.freepik.com/free-photo/stylish-african-american-woman-smiling_23-2148770405.jpg\" alt=\"Customer review\" />\n        <div class=\"skc-review-quote\">&#8220;</div>\n        <div class=\"skc-stars\">★★★★★</div>\n        <h4>We Sleep So Much Better!</h4>\n        <p>We're an older couple and have tried countless pillows over the years, but this is the first one that truly works for both of us. My wife's shoulder pain has completely disappeared and even my snoring has improved. We're absolutely thrilled with our purchase.</p>\n        <span class=\"skc-reviewer\">— Eric &amp; Marie</span>\n      </div>\n\n      <div class=\"skc-review-card\">\n        <img class=\"skc-review-photo\" src=\"https://snoozity.nl/cdn/shop/files/WhatsAppImage2025-08-31at11.45.47.jpg\" alt=\"Customer review\" />\n        <div class=\"skc-review-quote\">&#8220;</div>\n        <div class=\"skc-stars\">★★★★★</div>\n        <h4>Goodbye Morning Headaches.</h4>\n        <p>I used to wake up every morning with tension headaches from bad pillows, but that's all in the past now! This pillow gives my neck perfect support and feels firm yet wonderfully soft. I'm finally sleeping better than I have in years.</p>\n        <span class=\"skc-reviewer\">— Anna T.</span>\n      </div>\n\n    </div>\n  </section>\n\n  <!-- ===== 7. COMPARISON TABLE ===== -->\n  <section class=\"skc-compare\">\n    <div class=\"skc-compare-inner\">\n      <div class=\"skc-compare-text\">\n        <h2>What makes our support pillow so special?</h2>\n        <p>Discover why the <strong>Movanella Comfort™ Support Pillow</strong> makes all the difference compared to regular pillows on the market.</p>\n      </div>\n      <div>\n        <table class=\"skc-table\">\n          <thead>\n            <tr>\n              <th></th>\n              <th>Movanella</th>\n              <th>Other Pillows</th>\n            </tr>\n          </thead>\n          <tbody>\n            <tr>\n              <td>No neck pain</td>\n              <td class=\"skc-col-ours\"><span class=\"skc-check\">✓</span></td>\n              <td><span class=\"skc-cross\">✗</span></td>\n            </tr>\n            <tr>\n              <td>For all sleep positions</td>\n              <td class=\"skc-col-ours\"><span class=\"skc-check\">✓</span></td>\n              <td><span class=\"skc-cross\">✗</span></td>\n            </tr>\n            <tr>\n              <td>Hypoallergenic &amp; durable</td>\n              <td class=\"skc-col-ours\"><span class=\"skc-check\">✓</span></td>\n              <td><span class=\"skc-cross\">✗</span></td>\n            </tr>\n            <tr>\n              <td>Washable cover</td>\n              <td class=\"skc-col-ours\"><span class=\"skc-check\">✓</span></td>\n              <td><span class=\"skc-cross\">✗</span></td>\n            </tr>\n            <tr>\n              <td>Developed with experts</td>\n              <td class=\"skc-col-ours\"><span class=\"skc-check\">✓</span></td>\n              <td><span class=\"skc-cross\">✗</span></td>\n            </tr>\n            <tr>\n              <td>Try without risk</td>\n              <td class=\"skc-col-ours\"><span class=\"skc-check\">✓</span></td>\n              <td><span class=\"skc-cross\">✗</span></td>\n            </tr>\n          </tbody>\n        </table>\n      </div>\n    </div>\n  </section>\n\n  <!-- ===== 8. PHOTO STRIP ===== -->\n  <div class=\"skc-photo-strip\">\n    <img src=\"https://snoozity.nl/cdn/shop/files/snoozityyy.jpg\" alt=\"Product photo 1\" />\n    <img src=\"https://snoozity.nl/cdn/shop/files/gempages_576690581959344994-4fd19150-0016-49f3-b5ca-c4d78bf07a9f.webp\" alt=\"Product photo 2\" />\n    <img src=\"https://snoozity.nl/cdn/shop/files/gempages_576690581959344994-1fa79b1c-4e19-4fc1-9d5c-486508f1b829.jpg\" alt=\"Product photo 3\" />\n    <img src=\"https://snoozity.nl/cdn/shop/files/6_848b8939-8559-439a-bc61-b69f7c1acb57.webp\" alt=\"Product photo 4\" />\n    <img src=\"https://snoozity.nl/cdn/shop/files/gempages_576690581959344994-996dfc7e-acc1-4964-aa95-6ce185f6220d.webp\" alt=\"Product photo 5\" />\n  </div>\n\n  <!-- ===== 9. EXPERT TESTIMONIALS ===== -->\n  <section class=\"skc-experts\">\n    <h2>Medically verified by independent experts in neck, back, and sleep health</h2>\n    <div class=\"skc-experts-grid\">\n\n      <div>\n        <img class=\"skc-expert-img\" src=\"https://snoozity.nl/cdn/shop/files/a-doctor-smiles-while-holding-her-clipboard.jpg\" alt=\"Expert Dr. Sarah Mitchell\" />\n        <p class=\"skc-expert-quote\">\"As a physician, I frequently see neck and back complaints that stem from poor sleep posture. This pillow provides the correct alignment and relief. I can confidently recommend it to anyone who wants to sleep better and wake up pain-free.\"</p>\n        <p class=\"skc-expert-name\">\n          <svg viewBox=\"0 0 24 24\"><path d=\"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z\"/></svg>\n          Dr. Sarah Mitchell\n        </p>\n        <p class=\"skc-expert-title\">Orthopedic Physician, specialized in neck &amp; back complaints</p>\n      </div>\n\n      <div>\n        <img class=\"skc-expert-img\" src=\"https://snoozity.nl/cdn/shop/files/New_version_2_1.png\" alt=\"Expert Dr. James Howell\" />\n        <p class=\"skc-expert-quote\">\"A good night's sleep starts with the right support. This pillow combines ergonomics with comfort, helping my patients finally experience less tension in their neck and shoulders. It's a valuable addition for anyone with sleep issues.\"</p>\n        <p class=\"skc-expert-name\">\n          <svg viewBox=\"0 0 24 24\"><path d=\"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z\"/></svg>\n          Dr. James Howell\n        </p>\n        <p class=\"skc-expert-title\">Physical Therapist &amp; sleep posture specialist</p>\n      </div>\n\n      <div>\n        <img class=\"skc-expert-img\" src=\"https://snoozity.nl/cdn/shop/files/445556.jpg\" alt=\"Expert Dr. Kevin Strauss\" />\n        <p class=\"skc-expert-quote\">\"Many people underestimate how important posture during sleep really is. This pillow helps bring the body into balance and supports the recovery process overnight. A smart choice for long-term health and wellbeing.\"</p>\n        <p class=\"skc-expert-name\">\n          <svg viewBox=\"0 0 24 24\"><path d=\"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z\"/></svg>\n          Dr. Kevin Strauss\n        </p>\n        <p class=\"skc-expert-title\">Health expert &amp; speaker on posture and recovery</p>\n      </div>\n\n    </div>\n  </section>\n\n  <!-- ===== 10. FAQ ===== -->\n  <section class=\"skc-faq\">\n    <h2>Frequently Asked Questions</h2>\n\n    <div class=\"skc-faq-item\">\n      <button class=\"skc-faq-q\">Will this pillow help with my back, hip, or knee pain?</button>\n      <div class=\"skc-faq-a\">Poor sleep posture is a major cause of pain. Our support pillow helps reduce back, hip, and knee pain by supporting the natural alignment of your spine throughout the night. Side sleeping has never been safer or more comfortable!</div>\n    </div>\n\n    <div class=\"skc-faq-item\">\n      <button class=\"skc-faq-q\">How quickly will this pillow help me?</button>\n      <div class=\"skc-faq-a\">Most customers notice a difference after the very first night. For full results, we recommend using the pillow for at least 7 to 14 nights so your body can adjust to the new ergonomic sleep position.</div>\n    </div>\n\n    <div class=\"skc-faq-item\">\n      <button class=\"skc-faq-q\">Is the pillow machine washable, and what is the pillowcase made of?</button>\n      <div class=\"skc-faq-a\">Yes, the pillowcase is fully machine washable at 86°F (30°C). The cover is made from a soft, breathable mesh fabric that feels comfortable against the skin and promotes moisture wicking for a fresher sleeping experience.</div>\n    </div>\n\n    <div class=\"skc-faq-item\">\n      <button class=\"skc-faq-q\">Will it improve my sleep?</button>\n      <div class=\"skc-faq-a\">Absolutely. By properly supporting your neck and spine, your body needs less effort to find a comfortable position. The result: less tossing and turning, deeper sleep, and waking up feeling far more refreshed.</div>\n    </div>\n\n    <div class=\"skc-faq-item\">\n      <button class=\"skc-faq-q\">How do you use the pillow?</button>\n      <div class=\"skc-faq-a\">Place the pillow so that the central recess cradles your head and the wings support your neck and shoulders. Whether you're a side sleeper or back sleeper, the pillow adapts to your body for optimal support throughout the night.</div>\n    </div>\n\n    <div class=\"skc-faq-item\">\n      <button class=\"skc-faq-q\">What payment methods do you accept?</button>\n      <div class=\"skc-faq-a\">We accept all major payment methods including credit card (Visa/Mastercard), PayPal, Klarna buy now pay later, and Apple Pay. All transactions are secured with SSL encryption.</div>\n    </div>\n\n    <div class=\"skc-faq-item\">\n      <button class=\"skc-faq-q\">Do you also sell this product on Amazon or another platform?</button>\n      <div class=\"skc-faq-a\">No, our pillow is exclusively available through our own webshop. This allows us to fully control the quality, pricing, and customer service — ensuring you always get the best possible experience.</div>\n    </div>\n\n  </section>\n\n</div>\n\n<script>\n  document.querySelectorAll('.skc-faq-q').forEach(btn => {\n    btn.addEventListener('click', () => {\n      const item = btn.closest('.skc-faq-item');\n      const isOpen = item.classList.contains('open');\n      document.querySelectorAll('.skc-faq-item').forEach(i => i.classList.remove('open'));\n      if (!isOpen) item.classList.add('open');\n    });\n  });\n</script>\n"
+      }
+    }
+  },
+  "order": [
+    "main",
+    "custom_liquid_cloned"
+  ]
+}

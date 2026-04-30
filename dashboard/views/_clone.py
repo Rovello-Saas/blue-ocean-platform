@@ -212,16 +212,19 @@ def main() -> None:
     # Health check up front — fail fast if the Node service isn't running.
     # Cheaper than waiting for the user to click Start and get a confusing
     # connection error.
-    if not client.health_check():
+    try:
+        cloner_ready = client.health_check()
+    except Exception as exc:
         st.error(
-            f"The page-cloner engine is unreachable at `{client.base_url}`.\n\n"
-            "This page is built into the Streamlit platform, but the background "
-            "clone engine still has to be running so it can scrape, generate, "
-            "upload, and publish the Shopify page."
+            "The built-in page cloner could not start.\n\n"
+            f"{exc}"
         )
-        st.caption(
-            "Local: run the page cloner on port 3000. Cloud: set PAGE_CLONER_URL "
-            "to the deployed page-cloner service."
+        return
+
+    if not cloner_ready:
+        st.error(
+            "The built-in page cloner is not responding yet. Refresh this page "
+            "in a moment and try again."
         )
         return
 

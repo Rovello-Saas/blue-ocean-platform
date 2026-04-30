@@ -1,0 +1,120 @@
+{
+  "version": "1.0.0",
+  "blocks": [
+    {
+      "id": "features-grid-center-image",
+      "name": "Features Grid with Center Image",
+      "description": "3-column grid with center portrait image and 2 feature items on each side. SVG icons with uppercase titles and descriptive text.",
+      "category": "features",
+      "version": 1,
+      "layout": {
+        "type": "grid",
+        "columns": "1fr 1.8fr 1fr",
+        "gap": "40px",
+        "alignment": "center"
+      },
+      "imageConstraints": {
+        "centerImage": {
+          "preferredRatio": "3:4",
+          "acceptableRatioClasses": ["portrait-tall", "portrait"],
+          "objectFit": "cover",
+          "borderRadius": "12px"
+        }
+      },
+      "slots": {
+        "sectionTitle": { "type": "text", "required": true, "maxLength": 60 },
+        "centerImage": { "type": "image", "required": true },
+        "centerImageAlt": { "type": "text", "required": true },
+        "features": {
+          "type": "array",
+          "required": true,
+          "count": 4,
+          "itemSchema": {
+            "icon": { "type": "svg", "size": "48x48", "style": "feather-stroke" },
+            "title": { "type": "text", "maxLength": 40 },
+            "description": { "type": "text", "maxLength": 200 }
+          }
+        }
+      },
+      "template": "features-grid.hbs",
+      "matchingHints": [
+        "Center image flanked by feature/benefit text items",
+        "Icon + title + description pattern in columns beside an image",
+        "3-column layout with visual center focus",
+        "Portrait or near-portrait center showcase image",
+        "Product benefits or feature highlights section"
+      ]
+    },
+    {
+      "id": "content-row",
+      "name": "Content Row (Image + Text Side-by-Side)",
+      "description": "Two-column layout with image on one side and heading + paragraph on the other. Supports normal (image-left) and reverse (image-right) variants.",
+      "category": "content",
+      "version": 1,
+      "layout": {
+        "type": "grid",
+        "columns": "1fr 1fr",
+        "gap": "50px",
+        "alignment": "center"
+      },
+      "imageConstraints": {
+        "rowImage": {
+          "preferredRatio": "flexible",
+          "acceptableRatioClasses": ["portrait", "square", "landscape", "landscape-wide"],
+          "objectFit": "natural",
+          "borderRadius": "8px"
+        }
+      },
+      "variants": {
+        "normal": { "imagePosition": "left", "cssClass": "pcc-row" },
+        "reverse": { "imagePosition": "right", "cssClass": "pcc-row pcc-row-reverse" }
+      },
+      "slots": {
+        "image": { "type": "image", "required": true },
+        "imageAlt": { "type": "text", "required": true },
+        "heading": { "type": "text", "required": true, "maxLength": 80 },
+        "paragraph": { "type": "text", "required": true, "maxLength": 300 },
+        "variant": { "type": "enum", "values": ["normal", "reverse"], "default": "normal" }
+      },
+      "template": "content-row.hbs",
+      "matchingHints": [
+        "Side-by-side image and text layout",
+        "Product feature explanation with supporting image",
+        "Two-column section with heading and description",
+        "Image beside paragraph text",
+        "Alternating left/right image-text sections"
+      ]
+    },
+    {
+      "id": "trust-badges",
+      "name": "Trust Badges Row",
+      "description": "3-column trust/confidence section with icon badges. Static content: Free Shipping, Secure Payments, 30-Day Returns.",
+      "category": "trust",
+      "version": 1,
+      "static": true,
+      "layout": {
+        "type": "grid",
+        "columns": "repeat(3, 1fr)",
+        "gap": "30px"
+      },
+      "slots": {},
+      "template": "trust-badges.hbs",
+      "matchingHints": [
+        "Trust or confidence badges section",
+        "Shipping, payment, returns guarantees",
+        "Bottom-of-page reassurance icons",
+        "Shop with confidence section"
+      ]
+    }
+  ],
+  "aspectRatioRules": {
+    "classifications": {
+      "portrait-tall": { "min": 0.4, "max": 0.65, "examples": ["9:16", "2:3"] },
+      "portrait": { "min": 0.65, "max": 0.85, "examples": ["3:4"] },
+      "square": { "min": 0.85, "max": 1.15, "examples": ["1:1"] },
+      "landscape": { "min": 1.15, "max": 1.6, "examples": ["4:3", "3:2"] },
+      "landscape-wide": { "min": 1.6, "max": 2.5, "examples": ["16:9"] },
+      "ultrawide": { "min": 2.5, "max": 999, "examples": ["21:9", "banner"] }
+    }
+  }
+}

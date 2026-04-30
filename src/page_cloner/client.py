@@ -35,6 +35,7 @@ from typing import Optional
 import requests
 
 from src.core.config import PAGE_CLONER_URL
+from src.page_cloner.runtime import ensure_internal_page_cloner
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +101,7 @@ class PageClonerClient:
         # `request_timeout_sec` is the per-request HTTP timeout, distinct from
         # the overall polling timeout. Start/poll calls should return fast;
         # anything slower than this on localhost is a symptom, not normal.
-        self.base_url = (base_url or PAGE_CLONER_URL).rstrip("/")
+        self.base_url = (base_url or ensure_internal_page_cloner()).rstrip("/")
         self.request_timeout_sec = request_timeout_sec
 
     # ------------------------------------------------------------------ health

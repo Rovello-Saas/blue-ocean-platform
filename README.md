@@ -5,7 +5,9 @@ Fully automated platform that runs two parallel workflows from a single Streamli
 - **Clone workflow** (Meta / Merivalo-style): scrape a competitor page, translate, generate a Shopify listing, import reviews.
 - **Research workflow** (Google / Movanella-style): keyword research → AliExpress sourcing → AI content generation → Shopify listing → Google PMax testing → automated scale/kill decisions.
 
-Part A (this repo) is the Python/Streamlit platform. Part B is a Node page-cloner that runs as a sibling service and is called over HTTP from the clone workflow.
+The Python/Streamlit platform owns the cockpit. The page-cloner implementation
+is bundled in this repo under `internal-page-cloner/` and is started locally by
+the platform when the Clone workflow needs it.
 
 ## Quick Start
 

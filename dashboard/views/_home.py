@@ -259,10 +259,16 @@ def _render_clone_pipeline(site: str) -> None:
 
     st.markdown("### Page cloner status")
 
-    if not client.health_check():
+    try:
+        cloner_ready = client.health_check()
+    except Exception as exc:
+        st.error(f"The built-in page cloner could not start: {exc}")
+        return
+
+    if not cloner_ready:
         st.error(
-            f"Page cloner is unreachable at `{client.base_url}`. "
-            "The Streamlit app is ready, but the page-cloner engine is not responding."
+            "The built-in page cloner is not responding yet. Open the Clone page "
+            "or refresh in a moment."
         )
         if st.button(
             f"Open clone page for {site_name}",
