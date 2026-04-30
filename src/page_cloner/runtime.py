@@ -23,6 +23,7 @@ from src.core.config import PAGE_CLONER_URL, PROJECT_ROOT
 
 _PROCESS: Optional[subprocess.Popen] = None
 _INSTALL_DONE = False
+_CHROME_INSTALL_DONE = False
 
 
 def _is_local_url(url: str) -> bool:
@@ -65,6 +66,27 @@ def _ensure_node_modules(cloner_dir: Path) -> None:
     _INSTALL_DONE = True
 
 
+def _ensure_chrome(cloner_dir: Path, env: dict) -> None:
+    global _CHROME_INSTALL_DONE
+    chrome_marker = cloner_dir / ".chrome-install-complete"
+    if _CHROME_INSTALL_DONE or chrome_marker.exists():
+        _CHROME_INSTALL_DONE = True
+        return
+
+    if not shutil.which("npx"):
+        raise RuntimeError("npx is not available, so the built-in page cloner cannot install Chrome.")
+
+    subprocess.run(
+        ["npx", "puppeteer", "browsers", "install", "chrome"],
+        cwd=cloner_dir,
+        env=env,
+        check=True,
+        timeout=300,
+    )
+    chrome_marker.write_text("ok\n")
+    _CHROME_INSTALL_DONE = True
+
+
 def ensure_internal_page_cloner() -> str:
     """
     Start the bundled cloner if PAGE_CLONER_URL points at localhost.
@@ -95,6 +117,7 @@ def ensure_internal_page_cloner() -> str:
     env.setdefault("PUPPETEER_CACHE_DIR", str(PROJECT_ROOT / ".cache" / "puppeteer"))
 
     _ensure_node_modules(cloner_dir)
+    _ensure_chrome(cloner_dir, env)
 
     if _PROCESS and _PROCESS.poll() is None:
         return base_url

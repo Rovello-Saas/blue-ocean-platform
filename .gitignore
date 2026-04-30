@@ -42,6 +42,7 @@ logs/
 internal-page-cloner/.env
 internal-page-cloner/node_modules/
 internal-page-cloner/.install-complete
+internal-page-cloner/.chrome-install-complete
 internal-page-cloner/data/jobs/
 internal-page-cloner/data/output/
 internal-page-cloner/data/cost-log.jsonl
