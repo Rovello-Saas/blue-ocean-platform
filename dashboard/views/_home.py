@@ -22,7 +22,6 @@ Design intent: landing here should answer "what do I do next?" without you
 having to hunt across five tabs to find the right entry point.
 """
 
-import os
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
@@ -57,7 +56,9 @@ SITES = [
 # ---------------------------------------------------------------------------
 
 def _cloud_mode_enabled() -> bool:
-    return os.getenv("BLUE_OCEAN_CLOUD_MODE", "").strip().lower() in {"1", "true", "yes"}
+    from src.core.config import get_env
+
+    return get_env("BLUE_OCEAN_CLOUD_MODE", "").strip().lower() in {"1", "true", "yes"}
 
 
 def _clone_page_enabled() -> bool:
@@ -70,14 +71,27 @@ def _clone_page_enabled() -> bool:
     if not _cloud_mode_enabled():
         return True
 
-    parsed = urlparse((PAGE_CLONER_URL or "").strip())
-    return bool(parsed.hostname and parsed.hostname not in {"localhost", "127.0.0.1", "::1"})
+    url = (PAGE_CLONER_URL or "").strip()
+    parsed = urlparse(url)
+    is_placeholder = "your-page-cloner-service" in url
+    return bool(parsed.hostname and parsed.hostname not in {"localhost", "127.0.0.1", "::1"} and not is_placeholder)
 
 
 def _clone_unavailable_caption() -> str:
+    from src.core.config import PAGE_CLONER_URL
+
+    url = (PAGE_CLONER_URL or "").strip()
+    if not url:
+        detail = "PAGE_CLONER_URL is not set."
+    elif "your-page-cloner-service" in url:
+        detail = "PAGE_CLONER_URL is still the example placeholder."
+    else:
+        parsed = urlparse(url)
+        detail = f"PAGE_CLONER_URL is `{url}`, which is not reachable from Streamlit Cloud." if parsed.hostname in {"localhost", "127.0.0.1", "::1"} else f"Configured URL: `{url}`."
+
     return (
         "Page cloning is ready in the platform UI, but the cloud app still needs "
-        "a public Page Cloner URL before it can run clones."
+        f"a public Page Cloner URL before it can run clones. {detail}"
     )
 
 

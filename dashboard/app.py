@@ -36,7 +36,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 import logging
 
 import streamlit as st
-from src.core.config import PAGE_CLONER_URL
+from src.core.config import PAGE_CLONER_URL, get_env
 
 logging.basicConfig(
     level=logging.INFO,
@@ -149,11 +149,14 @@ settings_page    = st.Page("views/1_Settings.py",      title="Settings",       i
 # Cloud vs. local: the Clone page requires the Node page-cloner service.
 # Localhost only works on the laptop running Streamlit. On Streamlit Cloud,
 # show the Clone page only when PAGE_CLONER_URL points at a public service.
-_cloud_mode = os.getenv("BLUE_OCEAN_CLOUD_MODE", "").strip().lower() in {"1", "true", "yes"}
+_cloud_mode = get_env("BLUE_OCEAN_CLOUD_MODE", "").strip().lower() in {"1", "true", "yes"}
 _page_cloner_url = (PAGE_CLONER_URL or "").strip()
 _page_cloner_host = urlparse(_page_cloner_url).hostname if _page_cloner_url else ""
+_page_cloner_is_placeholder = "your-page-cloner-service" in _page_cloner_url
 _page_cloner_is_local = _page_cloner_host in {"localhost", "127.0.0.1", "::1"}
-_clone_page_enabled = (not _cloud_mode) or bool(_page_cloner_url and not _page_cloner_is_local)
+_clone_page_enabled = (not _cloud_mode) or bool(
+    _page_cloner_url and not _page_cloner_is_local and not _page_cloner_is_placeholder
+)
 workflows_pages = [clone_page, research_page] if _clone_page_enabled else [research_page]
 
 # Grouped navigation. Streamlit renders each key as a section heading in the

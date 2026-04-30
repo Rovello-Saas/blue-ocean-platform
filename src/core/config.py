@@ -261,8 +261,33 @@ class AppConfig:
 # --- Environment variable accessors ---
 
 def get_env(key: str, default: str = "") -> str:
-    """Get an environment variable."""
-    return os.getenv(key, default)
+    """
+    Get a runtime setting.
+
+    Priority:
+      1. Environment variable / local .env
+      2. Streamlit secrets (Cloud Secrets UI or local secrets.toml)
+      3. Provided default
+
+    Streamlit Cloud exposes secrets through `st.secrets`; depending on the
+    deployment/runtime, relying only on os.getenv can miss values entered in
+    the Secrets UI. Keep this helper central so dashboard code and backend
+    clients resolve config the same way.
+    """
+    value = os.getenv(key)
+    if value:
+        return value
+
+    try:
+        import streamlit as st
+
+        secret_value = st.secrets.get(key)
+        if secret_value:
+            return str(secret_value)
+    except Exception:
+        pass
+
+    return default
 
 
 def get_service_account_credentials(scopes: list[str] = None):
