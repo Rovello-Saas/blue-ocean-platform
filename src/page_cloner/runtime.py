@@ -66,6 +66,18 @@ def _ensure_node_modules(cloner_dir: Path) -> None:
     _INSTALL_DONE = True
 
 
+def _runtime_env(base_url: str) -> dict:
+    parsed = urlparse(base_url)
+    port = str(parsed.port or 3000)
+    env = os.environ.copy()
+    env.setdefault("HOST", "127.0.0.1")
+    env.setdefault("PORT", port)
+    env.setdefault("PLATFORM_API_URL", "http://127.0.0.1:8501")
+    env.setdefault("PUPPETEER_CACHE_DIR", str(PROJECT_ROOT / ".cache" / "puppeteer"))
+    env.setdefault("npm_config_cache", str(PROJECT_ROOT / ".cache" / "npm"))
+    return env
+
+
 def _ensure_chrome(cloner_dir: Path, env: dict) -> None:
     global _CHROME_INSTALL_DONE
     chrome_marker = cloner_dir / ".chrome-install-complete"
@@ -101,23 +113,17 @@ def ensure_internal_page_cloner() -> str:
     if not _is_local_url(base_url):
         return base_url
 
-    if _health_ok(base_url):
-        return base_url
-
     cloner_dir = PROJECT_ROOT / "internal-page-cloner"
     if not cloner_dir.exists():
         raise RuntimeError(f"Built-in page cloner folder is missing: {cloner_dir}")
 
-    parsed = urlparse(base_url)
-    port = str(parsed.port or 3000)
-    env = os.environ.copy()
-    env.setdefault("HOST", "127.0.0.1")
-    env.setdefault("PORT", port)
-    env.setdefault("PLATFORM_API_URL", "http://127.0.0.1:8501")
-    env.setdefault("PUPPETEER_CACHE_DIR", str(PROJECT_ROOT / ".cache" / "puppeteer"))
+    env = _runtime_env(base_url)
 
     _ensure_node_modules(cloner_dir)
     _ensure_chrome(cloner_dir, env)
+
+    if _health_ok(base_url):
+        return base_url
 
     if _PROCESS and _PROCESS.poll() is None:
         return base_url
