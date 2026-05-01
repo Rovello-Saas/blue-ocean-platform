@@ -54,13 +54,14 @@ def _ensure_node_modules(cloner_dir: Path) -> None:
 
     install_env = os.environ.copy()
     install_env.setdefault("npm_config_cache", str(PROJECT_ROOT / ".cache" / "npm"))
+    install_env.setdefault("PUPPETEER_SKIP_DOWNLOAD", "true")
 
     subprocess.run(
-        ["npm", "install", "--omit=dev"],
+        ["npm", "ci", "--omit=dev", "--no-audit", "--no-fund"],
         cwd=cloner_dir,
         env=install_env,
         check=True,
-        timeout=240,
+        timeout=900,
     )
     install_marker.write_text("ok\n")
     _INSTALL_DONE = True

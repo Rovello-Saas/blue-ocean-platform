@@ -1,8 +1,17 @@
 nodejs
 npm
+build-essential
+pkg-config
+libcairo2-dev
+libpango1.0-dev
+libjpeg-dev
+libgif-dev
+librsvg2-dev
 libnss3
 libatk-bridge2.0-0
 libxkbcommon0
 libgtk-3-0
 libgbm1
 libasound2
+libxss1
+libxtst6
