@@ -31,22 +31,13 @@ const LANGUAGE_LABELS = {
 };
 
 function getSystemPrompt(storeId, targetLanguage) {
-  // Store palette + voice.
-  // - `color`       → primary brand color (buttons, dark sections)
-  // - `darkColor`   → dark background / heading color (same as primary for Merivalo)
-  // - `accentColor` → small accents: stats circles, stars, checkmark ticks, small icons.
-  //                   This is what makes the page look like Merivalo vs. Movanella —
-  //                   without it, the model falls back to "green = success" from
-  //                   training data and produces mismatched stat rings.
   const storeConfig = {
     movanella: {
       name: 'Movanella', domain: 'movanella.com',
-      color: '#07941a', darkColor: '#1b2d5b', accentColor: '#07941a',
       lang: 'English'
     },
     merivalo: {
       name: 'Merivalo', domain: 'merivalo.com',
-      color: '#3b2067', darkColor: '#3b2067', accentColor: '#e8845f',
       lang: 'German (du-form, NOT Sie-form)'
     }
   };
@@ -56,13 +47,21 @@ function getSystemPrompt(storeId, targetLanguage) {
     store.lang = LANGUAGE_LABELS[targetLanguage];
   }
 
-  return `You are a Shopify product page builder for the ${store.name} brand. You create complete, production-ready custom Liquid content sections for product pages.
+  return `You are a Shopify page-cloning designer for the ${store.name} store. You create complete, production-ready custom Liquid content sections for product pages.
 
 Brand: ${store.name} (${store.domain})
 Language: ${store.lang}
 Brand voice: Clean, confident, benefit-focused. Short sentences. No hype or excessive exclamation marks. Professional but warm.
 
-You will receive a screenshot and scraped data from a source product page. Your job is to create a COMPLETE Liquid file (HTML + CSS + JavaScript) that recreates the product's content sections in ${store.name}'s style. All text must be in ${store.lang}. Never use the source brand name — always use "${store.name}".
+You will receive a screenshot and scraped data from a source product page. Your job is to create a COMPLETE Liquid file (HTML + CSS + JavaScript) that faithfully recreates the source product page's visual direction and section flow inside Shopify. All text must be in ${store.lang}. Never use the source brand name in written copy — use generic product language or "${store.name}" where a brand is required.
+
+## FIDELITY PRIORITY
+
+This is a page clone, not a generic ${store.name} template.
+- Preserve the source page's color palette from the screenshot and image assets. If the source page is blush/pink/rose/cream, use blush/pink/rose/cream. If it is blue, use blue. Do NOT force ${store.name}'s default colors.
+- Preserve the source page's section sequence and visual concepts as much as possible: product hero, benefits, science/technology explanation, how-to-use, results/statistics, comparison chart, before/after proof, expert/social proof, guarantee, FAQ.
+- Preserve source image compositions. If an image is already a before/after composite, comparison chart, infographic, dermatologist card, quote card, or guarantee graphic, use it as ONE whole image. Do NOT split it into separate "before" and "after" images. Do NOT recreate it as unrelated cards.
+- Keep the look close to the source, but rewrite copy so it is original and does not mention the source brand.
 
 ## REQUIRED OUTPUT STRUCTURE
 
@@ -72,35 +71,40 @@ Your output must be a complete file with these parts:
 2. \`<div class="PREFIX-wrap">\` containing all sections
 3. \`<script>\` block for FAQ accordion interactivity
 
-## REQUIRED SECTIONS (in this order)
+## RECOMMENDED SECTION FLOW
 
-1. **Trust Bar** — Dark bar (${store.darkColor}) with 3 trust points (checkmark prefix, checkmark color = accent ${store.accentColor})
-2. **Features Grid** — 3-4 feature items with SVG icons, title, and bullet points
-3. **Dark Hero** — Split layout: text (heading + paragraph + bullet list) on left, product image on right, dark background (${store.darkColor})
-4. **Use Cases / Types Grid** — 3-4 cards showing product use cases with images
-5. **Stats Section** — Dark background (${store.darkColor}), split: text + image on left, 4 stat rows with SVG circle progress indicators on right (showing percentages like 97%, 95%). The ring stroke + percentage text MUST use the accent color ${store.accentColor} — never green, never primary purple, never white. This is the single most important color rule.
-6. **Customer Reviews** — 3 review cards with star ratings (stars use accent color ${store.accentColor}), review titles, quotes, and reviewer names
-7. **Comparison Table** — "${store.name} vs Other" table with checkmarks/crosses
-8. **FAQ Accordion** — 5-7 collapsible Q&A items with JavaScript toggle
+Follow the source page's order when the screenshot/images show it. A skincare device page usually needs:
+1. **Trust / proof strip** — small credibility badges and guarantee points
+2. **Benefit cards or technology grid** — red light, warmth, massage, absorption/current, etc.
+3. **Science / how it works section** — use the source diagram or technology infographic if available
+4. **How to use section** — use the source usage image/steps if available
+5. **Results/statistics section** — preserve the source stats style and palette
+6. **Comparison chart** — if a chart image is available, use the chart image whole; otherwise create a close table
+7. **Before & after / real results** — use the before-after composite image(s) whole and prominent
+8. **Expert/social proof / customer quotes**
+9. **Guarantee / risk-free section**
+10. **FAQ Accordion** — 5-7 collapsible Q&A items with JavaScript toggle
 
 ## CRITICAL RULES
 
 - Generate a UNIQUE 2-4 character CSS class prefix from the product name (e.g., \`cap-\` for Cloud Alignment Pillow, \`mls-\` for Motion LED Strip)
 - Use source product images by URL directly (they will be hosted on Shopify CDN after upload)
 - Color scheme:
-    • Primary / dark sections / headings: \`${store.darkColor}\`
-    • Light section backgrounds: \`#fff\`
-    • Comparison-table background: \`#f8f9ff\`
-    • ACCENT (stats circles, stars, checkmark ticks, small icons, progress fills): \`${store.accentColor}\` — use this everywhere the source uses a "pop" color. NEVER use green (#07941a, #16a34a, #22c55e, etc.) on a ${store.name} page unless the accent color IS green. NEVER use a different color for the stats rings than the rest of the accent system.
+    • Derive colors from the source screenshot and source image assets.
+    • For Solawave-like beauty pages, prefer soft blush/pink/rose, warm beige/cream, muted coral, deep burgundy/plum text, and white cards. Avoid Movanella blue/green.
+    • Use one coherent accent color for buttons, stats, stars, checkmarks, and links. It should match the source page's pop color.
+    • Do NOT use green (#07941a, #16a34a, #22c55e, etc.) unless the source page itself is green.
+    • Do NOT use navy/blue dark sections unless the source page uses blue. If the source uses pink/cream, use pink/cream.
 - Font: \`-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif\`
 - Mobile breakpoint: \`@media (max-width: 749px)\` — Horizon theme uses 749px
-- SVG circle stats: use \`stroke-dasharray\` to show percentage (e.g., 207 = full circle with r=33, so 97% = \`stroke-dasharray="201 20"\`). Ring stroke = \`${store.accentColor}\`.
+- SVG circle stats: use \`stroke-dasharray\` to show percentage (e.g., 207 = full circle with r=33, so 97% = \`stroke-dasharray="201 20"\`). Ring stroke = source accent color.
 - FAQ accordion JavaScript: toggle \`.open\` class on \`.PREFIX-faq-item\`
-- REWRITE all content in ${store.name} brand voice — never copy source text verbatim. Never mention the source brand name.
+- REWRITE all content — never copy source text verbatim. Never mention the source brand name.
 - All review content must be original (create realistic-sounding reviews based on product benefits)
-- Stats percentages should be realistic (93-98% range)
-- SVG icons: use Feather-style stroke icons (stroke="${store.darkColor}", stroke-width="1.5", fill="none", viewBox="0 0 24 24"). For small decorative accent icons (checkmarks in the trust bar, stars), use stroke/fill "${store.accentColor}".
+- Stats percentages should be realistic and may mirror the source page's visible style/range.
+- SVG icons: use Feather-style stroke icons (stroke=source heading color, stroke-width="1.5", fill="none", viewBox="0 0 24 24"). For small decorative accent icons (checkmarks in the trust bar, stars), use source accent color.
 - IMAGE CROPPING — content-card images (use-case cards, feature cards, diagrams, sleep-position illustrations, comparison images, review photos) MUST use \`aspect-ratio: 4/3; object-fit: contain; background: #fff; padding: 8px;\` — NEVER \`height: Npx; object-fit: cover\`. Source images are frequently infographics with labels, icons, arrows, or text baked in; \`cover\` crops that content off. Only the main hero or dark-hero banner — an edge-to-edge lifestyle photo — may use \`object-fit: cover\` (and even then, prefer a large min-height over a fixed pixel height).
+- BEFORE/AFTER RULE — Any image whose label or alt text includes "before-after", "before and after", "Day 0", "Day 30", or "Real Results" must be shown as a single complete image in a before/after proof section. Never crop it, split it, or rebuild it as two separate unrelated images.
 
 ## OUTPUT FORMAT
 
@@ -188,6 +192,10 @@ async function generateFullLiquid(productMeta, sections, screenshotPath, storeId
 
   // Flat list of URLs (kept for backwards-compatible consumers below)
   const availableImages = availableImagesWithLabels.map(x => x.src);
+  const sourceDesign = inferSourceDesign(productMeta, sections, availableImagesWithLabels);
+  const criticalImages = availableImagesWithLabels.filter(x =>
+    /(before[-\s]?after|before and after|day\s*0|day\s*30|real results|comparison chart|dermatologist|guarantee|how to use|easy to use|3-5x|visible results)/i.test(x.label || '')
+  );
 
   const userMessage = `Create a complete ${storeName} product page liquid file for this product.
 
@@ -201,17 +209,24 @@ async function generateFullLiquid(productMeta, sections, screenshotPath, storeId
 ## SCRAPED PAGE SECTIONS
 ${JSON.stringify(sectionSummary, null, 2)}
 
+## SOURCE DESIGN PROFILE
+${sourceDesign.instructions}
+
 ## AVAILABLE IMAGES (use these URLs in your HTML — each has a semantic label)
 ${availableImagesWithLabels.map((x, i) => `${i + 1}. [${x.label || 'unlabeled'}]  ${x.src}`).join('\n')}
+
+## CRITICAL SOURCE IMAGES TO PRESERVE AS WHOLE IMAGES
+${criticalImages.length ? criticalImages.map((x, i) => `${i + 1}. [${x.label || 'unlabeled'}]  ${x.src}`).join('\n') : 'No critical composite images detected.'}
 
 IMAGE USAGE RULES:
 - Pick the SEMANTICALLY most appropriate URL for each slot. The label in square brackets tells you what each image shows (e.g. "hotel pillow meagan side sleeping" is a side-sleeper photo; "size guide" is a sizing diagram; "hotel pillow callouts" is a features-callout diagram).
 - DO NOT reuse the same image URL across multiple different sections. If you have a "Side Sleeper / Back Sleeper / Stomach Sleeper" grid and three distinct sleeper photos are available, use three different URLs — one for each card. Only reuse an image if the layout intentionally shows the same product angle twice (e.g. hero + dark-hero split) AND no alternate angle is available.
 - If you run out of distinct semantically-matching images for a section, pick the closest-fitting unused image rather than repeating one you already used.
 - Prefer images with descriptive labels (diagrams, callouts, benefits, lifestyle shots) for content sections. Reserve the clean product-only shots for the gallery/hero.
+- If a critical source image is listed above, preserve it as a complete visual asset in the matching section. Before/after composite images must remain composite images.
 
 ## REFERENCE STRUCTURE
-Here is the HTML structure of a previous product page we built. Follow this EXACT pattern for section structure, class naming conventions, and JavaScript:
+Here is the HTML structure of a previous product page we built. Use it only for Liquid mechanics, class-prefix conventions, responsive CSS, and FAQ JavaScript. Do NOT copy its colors or force its section order when the source screenshot/images show a different visual style:
 
 ${referenceSnippet.substring(0, 4000)}
 
@@ -239,6 +254,7 @@ Now generate the complete file for "${productMeta.title}". Remember: unique CSS 
   // ends with `img` AND that use a small fixed height (<= 400px), so hero
   // sections keep their intentional crop.
   liquid = sanitizeCardImageCropping(liquid);
+  liquid = applySourcePaletteGuard(liquid, sourceDesign);
 
   // Validate it has the required parts
   if (!liquid.includes('<style>') || !liquid.includes('<div')) {
@@ -246,6 +262,71 @@ Now generate the complete file for "${productMeta.title}". Remember: unique CSS 
   }
 
   return liquid;
+}
+
+function inferSourceDesign(productMeta, sections, labeledImages) {
+  const haystack = [
+    productMeta.title,
+    productMeta.description,
+    ...(productMeta.images || []).map(img => img.alt || ''),
+    ...labeledImages.map(x => x.label || ''),
+    ...sections.flatMap(s => [
+      ...(s.headings || []).map(h => h.text || ''),
+      ...(s.paragraphs || [])
+    ])
+  ].join(' ').toLowerCase();
+
+  const isSolawaveLike = /solawave|red light|skincare wand|rose gold|radiant renewal|light therapy|galvanic|before[-\s]?after|day\s*30|real results/.test(haystack);
+
+  if (isSolawaveLike) {
+    return {
+      kind: 'beauty-red-light',
+      accent: '#e66f8f',
+      dark: '#52263a',
+      soft: '#fde8ee',
+      cream: '#fff7f1',
+      instructions: [
+        'Detected a beauty/red-light skincare source page.',
+        'Use a Solawave-like visual direction: blush pink, rose, soft cream, warm white cards, muted coral accents, and deep berry/plum text.',
+        'Do not use Movanella green or navy/blue as the primary page palette.',
+        'Use rounded cream/pink cards and full-width proof sections similar to a skincare PDP.',
+        'The before/after, comparison chart, dermatologist/expert quote, usage infographic, and guarantee images should be shown as complete images, not broken into separate generated cards.'
+      ].join('\n')
+    };
+  }
+
+  return {
+    kind: 'source-generic',
+    instructions: [
+      'Derive the palette, spacing, card shapes, and section order from the screenshot.',
+      'Do not force the destination store palette if it conflicts with the source page.'
+    ].join('\n')
+  };
+}
+
+function applySourcePaletteGuard(liquid, sourceDesign) {
+  if (sourceDesign.kind !== 'beauty-red-light') return liquid;
+  const replacements = [
+    [/#07941a/gi, sourceDesign.accent],
+    [/#16a34a/gi, sourceDesign.accent],
+    [/#22c55e/gi, sourceDesign.accent],
+    [/#1b2d5b/gi, sourceDesign.dark],
+    [/#0f172a/gi, sourceDesign.dark],
+    [/#f8f9ff/gi, sourceDesign.soft],
+    [/#e8f5e9/gi, sourceDesign.soft]
+  ];
+  let out = liquid;
+  let changed = 0;
+  for (const [from, to] of replacements) {
+    out = out.replace(from, () => {
+      changed++;
+      return to;
+    });
+  }
+  if (changed > 0) {
+    console.log(`  [AI] Applied source palette guard (${changed} color replacement(s))`);
+  }
+  return out;
 }
 
 /**
