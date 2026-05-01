@@ -105,6 +105,7 @@ Follow the source page's order when the screenshot/images show it. A skincare de
 - SVG icons: use Feather-style stroke icons (stroke=source heading color, stroke-width="1.5", fill="none", viewBox="0 0 24 24"). For small decorative accent icons (checkmarks in the trust bar, stars), use source accent color.
 - IMAGE CROPPING — content-card images (use-case cards, feature cards, diagrams, sleep-position illustrations, comparison images, review photos) MUST use \`aspect-ratio: 4/3; object-fit: contain; background: #fff; padding: 8px;\` — NEVER \`height: Npx; object-fit: cover\`. Source images are frequently infographics with labels, icons, arrows, or text baked in; \`cover\` crops that content off. Only the main hero or dark-hero banner — an edge-to-edge lifestyle photo — may use \`object-fit: cover\` (and even then, prefer a large min-height over a fixed pixel height).
 - BEFORE/AFTER RULE — Any image whose label or alt text includes "before-after", "before and after", "Day 0", "Day 30", or "Real Results" must be shown as a single complete image in a before/after proof section. Never crop it, split it, or rebuild it as two separate unrelated images.
+- BEFORE/AFTER SLIDER RULE — For Solawave-like pages, the before/after proof should feel like the source site: a horizontal results slider/carousel of whole before/after composite images with arrows/dots. If truly separate before and after photos are available instead, build a draggable compare slider with stacked images, a range input, a vertical divider, and "Before" / "After" labels. Never turn composite before/after images into unrelated separate cards.
 
 ## OUTPUT FORMAT
 
@@ -196,6 +197,7 @@ async function generateFullLiquid(productMeta, sections, screenshotPath, storeId
   const criticalImages = availableImagesWithLabels.filter(x =>
     /(before[-\s]?after|before and after|day\s*0|day\s*30|real results|comparison chart|dermatologist|guarantee|how to use|easy to use|3-5x|visible results)/i.test(x.label || '')
   );
+  const beforeAfterAssets = findBeforeAfterImages(availableImagesWithLabels);
 
   const userMessage = `Create a complete ${storeName} product page liquid file for this product.
 
@@ -218,12 +220,16 @@ ${availableImagesWithLabels.map((x, i) => `${i + 1}. [${x.label || 'unlabeled'}]
 ## CRITICAL SOURCE IMAGES TO PRESERVE AS WHOLE IMAGES
 ${criticalImages.length ? criticalImages.map((x, i) => `${i + 1}. [${x.label || 'unlabeled'}]  ${x.src}`).join('\n') : 'No critical composite images detected.'}
 
+## BEFORE/AFTER SLIDER ASSETS
+${formatBeforeAfterAssets(beforeAfterAssets)}
+
 IMAGE USAGE RULES:
 - Pick the SEMANTICALLY most appropriate URL for each slot. The label in square brackets tells you what each image shows (e.g. "hotel pillow meagan side sleeping" is a side-sleeper photo; "size guide" is a sizing diagram; "hotel pillow callouts" is a features-callout diagram).
 - DO NOT reuse the same image URL across multiple different sections. If you have a "Side Sleeper / Back Sleeper / Stomach Sleeper" grid and three distinct sleeper photos are available, use three different URLs — one for each card. Only reuse an image if the layout intentionally shows the same product angle twice (e.g. hero + dark-hero split) AND no alternate angle is available.
 - If you run out of distinct semantically-matching images for a section, pick the closest-fitting unused image rather than repeating one you already used.
 - Prefer images with descriptive labels (diagrams, callouts, benefits, lifestyle shots) for content sections. Reserve the clean product-only shots for the gallery/hero.
 - If a critical source image is listed above, preserve it as a complete visual asset in the matching section. Before/after composite images must remain composite images.
+- If BEFORE/AFTER SLIDER ASSETS lists composite images, you MUST build a horizontal results slider/carousel using those complete images. If it lists a before + after pair instead, build a draggable compare slider with those exact two image URLs.
 
 ## REFERENCE STRUCTURE
 Here is the HTML structure of a previous product page we built. Use it only for Liquid mechanics, class-prefix conventions, responsive CSS, and FAQ JavaScript. Do NOT copy its colors or force its section order when the source screenshot/images show a different visual style:
@@ -255,6 +261,7 @@ Now generate the complete file for "${productMeta.title}". Remember: unique CSS 
   // sections keep their intentional crop.
   liquid = sanitizeCardImageCropping(liquid);
   liquid = applySourcePaletteGuard(liquid, sourceDesign);
+  liquid = injectBeforeAfterSliderFallback(liquid, beforeAfterAssets, sourceDesign);
 
   // Validate it has the required parts
   if (!liquid.includes('<style>') || !liquid.includes('<div')) {
@@ -262,6 +269,446 @@ Now generate the complete file for "${productMeta.title}". Remember: unique CSS 
   }
 
   return liquid;
+}
+
+function findBeforeAfterImages(labeledImages) {
+  const before = [];
+  const after = [];
+  const composite = [];
+
+  for (const image of labeledImages) {
+    const label = (image.label || '').toLowerCase();
+    if (!label) continue;
+
+    const isComposite = /before[-\s]?after|before and after|before\s*&\s*after|real results|day\s*0\s*(?:vs\.?|versus|\/|-|to)\s*day\s*(?:28|30|60|90)/i.test(label);
+    const isBefore = /\bbefore\b|day\s*0\b|baseline|starting point|week\s*0\b/i.test(label);
+    const isAfter = /\bafter\b|day\s*(?:28|30|60|90)\b|week\s*(?:4|6|8|12)\b|result|results/i.test(label);
+
+    if (isComposite) {
+      composite.push(image);
+      continue;
+    }
+    if (isBefore) before.push(image);
+    if (isAfter) after.push(image);
+  }
+
+  return {
+    before: uniqueImages(before),
+    after: uniqueImages(after),
+    composite: uniqueImages(composite)
+  };
+}
+
+function uniqueImages(images) {
+  const seen = new Set();
+  return images.filter(image => {
+    if (!image?.src || seen.has(image.src)) return false;
+    seen.add(image.src);
+    return true;
+  });
+}
+
+function formatBeforeAfterAssets(assets) {
+  const lines = [];
+  const pairCount = Math.min(assets.before.length, assets.after.length);
+  for (let i = 0; i < pairCount; i++) {
+    lines.push(`Pair ${i + 1}:`);
+    lines.push(`- Before: [${assets.before[i].label || 'before'}] ${assets.before[i].src}`);
+    lines.push(`- After: [${assets.after[i].label || 'after'}] ${assets.after[i].src}`);
+  }
+  if (assets.composite.length) {
+    lines.push('Composite before/after images (show whole if no separate pair is available):');
+    assets.composite.slice(0, 4).forEach((image, i) => {
+      lines.push(`${i + 1}. [${image.label || 'before-after composite'}] ${image.src}`);
+    });
+  }
+  return lines.length ? lines.join('\n') : 'No before/after assets detected.';
+}
+
+function injectBeforeAfterSliderFallback(liquid, assets, sourceDesign) {
+  if (hasBeforeAfterInteractiveSection(liquid)) return liquid;
+
+  const prefix = inferCssPrefix(liquid);
+  const colors = {
+    accent: sourceDesign.accent || '#e66f8f',
+    dark: sourceDesign.dark || '#52263a',
+    soft: sourceDesign.soft || '#fde8ee',
+    cream: sourceDesign.cream || '#fff7f1'
+  };
+
+  if (assets.composite.length) {
+    return injectSectionAndScript(
+      liquid,
+      buildBeforeAfterCarousel(prefix, colors, assets.composite.slice(0, 6)),
+      '  [AI] Injected before/after carousel fallback'
+    );
+  }
+
+  const before = assets.before[0];
+  const after = assets.after[0];
+  if (!before?.src || !after?.src) return liquid;
+
+  return injectSectionAndScript(
+    liquid,
+    buildBeforeAfterCompareSlider(prefix, colors, before, after),
+    '  [AI] Injected before/after comparison slider fallback'
+  );
+}
+
+function hasBeforeAfterInteractiveSection(liquid) {
+  return /type=["']range["']|before-after-slider|ba-slider|ba-carousel|data-before-after-(?:slider|carousel)|results?-(?:slider|carousel)/i.test(liquid);
+}
+
+function buildBeforeAfterCarousel(prefix, colors, images) {
+  const slides = images.map((image, i) => `
+        <div class="${prefix}-ba-slide" role="group" aria-label="Result ${i + 1} of ${images.length}">
+          <img src="${escapeHtml(image.src)}" alt="${escapeHtml(image.label || `Before and after result ${i + 1}`)}" loading="lazy">
+        </div>`).join('');
+  const dots = images.map((_, i) => `
+        <button class="${prefix}-ba-dot" type="button" aria-label="Show result ${i + 1}" aria-current="${i === 0 ? 'true' : 'false'}"></button>`).join('');
+
+  const css = `
+
+  .${prefix}-ba-section {
+    margin: clamp(36px, 7vw, 76px) auto;
+    padding: clamp(24px, 5vw, 56px);
+    border-radius: 32px;
+    background: linear-gradient(135deg, ${colors.cream}, ${colors.soft});
+  }
+  .${prefix}-ba-heading {
+    max-width: 780px;
+    margin: 0 auto 24px;
+    text-align: center;
+  }
+  .${prefix}-ba-heading h2 {
+    margin: 0 0 10px;
+    color: ${colors.dark};
+    font-size: clamp(32px, 5vw, 58px);
+    line-height: 0.98;
+  }
+  .${prefix}-ba-heading p {
+    margin: 0;
+    color: ${colors.dark};
+    opacity: .76;
+    font-size: clamp(16px, 2vw, 20px);
+  }
+  .${prefix}-ba-carousel {
+    max-width: 980px;
+    margin: 0 auto;
+  }
+  .${prefix}-ba-viewport {
+    overflow: hidden;
+    border-radius: 28px;
+    background: #fff;
+    box-shadow: 0 24px 70px rgba(82, 38, 58, .16);
+  }
+  .${prefix}-ba-track {
+    display: flex;
+    transition: transform .36s ease;
+    will-change: transform;
+  }
+  .${prefix}-ba-slide {
+    flex: 0 0 100%;
+    padding: clamp(10px, 2vw, 18px);
+    background: #fff;
+  }
+  .${prefix}-ba-slide img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: contain;
+    background: #fff;
+    border-radius: 22px;
+  }
+  .${prefix}-ba-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 18px;
+  }
+  .${prefix}-ba-button {
+    display: grid;
+    place-items: center;
+    width: 46px;
+    height: 46px;
+    border: 0;
+    border-radius: 999px;
+    background: #fff;
+    color: ${colors.dark};
+    box-shadow: 0 10px 28px rgba(82, 38, 58, .16);
+    cursor: pointer;
+    font-size: 22px;
+    line-height: 1;
+  }
+  .${prefix}-ba-dots {
+    display: flex;
+    gap: 8px;
+  }
+  .${prefix}-ba-dot {
+    width: 9px;
+    height: 9px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: rgba(82, 38, 58, .25);
+    cursor: pointer;
+  }
+  .${prefix}-ba-dot[aria-current="true"] {
+    width: 26px;
+    background: ${colors.accent};
+  }
+  @media (max-width: 749px) {
+    .${prefix}-ba-section {
+      padding: 22px 14px;
+      border-radius: 24px;
+    }
+    .${prefix}-ba-slide {
+      padding: 8px;
+    }
+    .${prefix}-ba-slide img {
+      aspect-ratio: 3 / 4;
+      border-radius: 18px;
+    }
+  }`;
+
+  const section = `
+  <section class="${prefix}-ba-section">
+    <div class="${prefix}-ba-heading">
+      <h2>Real results you can see</h2>
+      <p>Swipe through the before and after proof, shown as complete source images.</p>
+    </div>
+    <div class="${prefix}-ba-carousel" data-before-after-carousel>
+      <div class="${prefix}-ba-viewport">
+        <div class="${prefix}-ba-track">
+${slides}
+        </div>
+      </div>
+      <div class="${prefix}-ba-controls" aria-label="Before and after results">
+        <button class="${prefix}-ba-button ${prefix}-ba-prev" type="button" aria-label="Previous result">‹</button>
+        <div class="${prefix}-ba-dots">
+${dots}
+        </div>
+        <button class="${prefix}-ba-button ${prefix}-ba-next" type="button" aria-label="Next result">›</button>
+      </div>
+    </div>
+  </section>`;
+
+  const script = `
+  document.querySelectorAll('.${prefix}-ba-carousel').forEach(function(carousel) {
+    var track = carousel.querySelector('.${prefix}-ba-track');
+    var slides = Array.prototype.slice.call(carousel.querySelectorAll('.${prefix}-ba-slide'));
+    var dots = Array.prototype.slice.call(carousel.querySelectorAll('.${prefix}-ba-dot'));
+    var prev = carousel.querySelector('.${prefix}-ba-prev');
+    var next = carousel.querySelector('.${prefix}-ba-next');
+    var index = 0;
+    if (!track || slides.length < 2) return;
+    var show = function(nextIndex) {
+      index = (nextIndex + slides.length) % slides.length;
+      track.style.transform = 'translateX(' + (-index * 100) + '%)';
+      dots.forEach(function(dot, dotIndex) {
+        dot.setAttribute('aria-current', dotIndex === index ? 'true' : 'false');
+      });
+    };
+    if (prev) prev.addEventListener('click', function() { show(index - 1); });
+    if (next) next.addEventListener('click', function() { show(index + 1); });
+    dots.forEach(function(dot, dotIndex) {
+      dot.addEventListener('click', function() { show(dotIndex); });
+    });
+    show(0);
+  });`;
+
+  return { css, section, script };
+}
+
+function buildBeforeAfterCompareSlider(prefix, colors, before, after) {
+  const css = `
+
+  .${prefix}-ba-section {
+    margin: clamp(36px, 7vw, 76px) auto;
+    padding: clamp(24px, 5vw, 56px);
+    border-radius: 32px;
+    background: linear-gradient(135deg, ${colors.cream}, ${colors.soft});
+  }
+  .${prefix}-ba-heading {
+    max-width: 780px;
+    margin: 0 auto 24px;
+    text-align: center;
+  }
+  .${prefix}-ba-heading h2 {
+    margin: 0 0 10px;
+    color: ${colors.dark};
+    font-size: clamp(32px, 5vw, 58px);
+    line-height: 0.98;
+  }
+  .${prefix}-ba-heading p {
+    margin: 0;
+    color: ${colors.dark};
+    opacity: .76;
+    font-size: clamp(16px, 2vw, 20px);
+  }
+  .${prefix}-ba-slider {
+    --position: 50%;
+    position: relative;
+    max-width: 920px;
+    margin: 0 auto;
+    overflow: hidden;
+    border-radius: 28px;
+    background: #fff;
+    box-shadow: 0 24px 70px rgba(82, 38, 58, .16);
+  }
+  .${prefix}-ba-slider img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    object-fit: cover;
+    background: #fff;
+  }
+  .${prefix}-ba-before-img {
+    position: absolute;
+    inset: 0;
+    clip-path: inset(0 calc(100% - var(--position)) 0 0);
+  }
+  .${prefix}-ba-range {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: ew-resize;
+  }
+  .${prefix}-ba-divider {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: var(--position);
+    z-index: 4;
+    width: 3px;
+    transform: translateX(-50%);
+    background: #fff;
+    box-shadow: 0 0 0 1px rgba(82, 38, 58, .12);
+    pointer-events: none;
+  }
+  .${prefix}-ba-handle {
+    position: absolute;
+    top: 50%;
+    left: var(--position);
+    z-index: 4;
+    display: grid;
+    place-items: center;
+    width: 58px;
+    height: 58px;
+    border-radius: 999px;
+    transform: translate(-50%, -50%);
+    background: #fff;
+    color: ${colors.accent};
+    box-shadow: 0 12px 32px rgba(82, 38, 58, .25);
+    font-weight: 800;
+    pointer-events: none;
+  }
+  .${prefix}-ba-label {
+    position: absolute;
+    top: 18px;
+    z-index: 3;
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .9);
+    color: ${colors.dark};
+    font-weight: 800;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+    font-size: 12px;
+  }
+  .${prefix}-ba-label-before { left: 18px; }
+  .${prefix}-ba-label-after { right: 18px; }
+  @media (max-width: 749px) {
+    .${prefix}-ba-section {
+      padding: 22px 14px;
+      border-radius: 24px;
+    }
+    .${prefix}-ba-slider img {
+      aspect-ratio: 4 / 5;
+    }
+    .${prefix}-ba-handle {
+      width: 48px;
+      height: 48px;
+    }
+  }`;
+
+  const section = `
+  <section class="${prefix}-ba-section">
+    <div class="${prefix}-ba-heading">
+      <h2>Real results you can compare</h2>
+      <p>Drag the slider to see how the before and after photos line up.</p>
+    </div>
+    <div class="${prefix}-ba-slider" data-before-after-slider>
+      <img src="${escapeHtml(after.src)}" alt="${escapeHtml(after.label || 'After result')}" loading="lazy">
+      <img class="${prefix}-ba-before-img" src="${escapeHtml(before.src)}" alt="${escapeHtml(before.label || 'Before result')}" loading="lazy">
+      <span class="${prefix}-ba-label ${prefix}-ba-label-before">Before</span>
+      <span class="${prefix}-ba-label ${prefix}-ba-label-after">After</span>
+      <span class="${prefix}-ba-divider"></span>
+      <span class="${prefix}-ba-handle" aria-hidden="true">↔</span>
+      <input class="${prefix}-ba-range" type="range" min="0" max="100" value="50" aria-label="Compare before and after photos">
+    </div>
+  </section>`;
+
+  const script = `
+  document.querySelectorAll('.${prefix}-ba-slider').forEach(function(slider) {
+    var input = slider.querySelector('.${prefix}-ba-range');
+    if (!input) return;
+    var update = function() {
+      slider.style.setProperty('--position', input.value + '%');
+    };
+    input.addEventListener('input', update);
+    update();
+  });`;
+
+  return { css, section, script };
+}
+
+function injectSectionAndScript(liquid, parts, logMessage) {
+  let out = liquid.includes('</style>')
+    ? liquid.replace('</style>', `${parts.css}\n</style>`)
+    : `${parts.css}\n${liquid}`;
+
+  const scriptIndex = out.search(/<script\b/i);
+  if (scriptIndex >= 0) {
+    const beforeScript = out.slice(0, scriptIndex);
+    const afterScript = out.slice(scriptIndex);
+    const lastDiv = beforeScript.lastIndexOf('</div>');
+    if (lastDiv >= 0) {
+      out = `${beforeScript.slice(0, lastDiv)}${parts.section}\n${beforeScript.slice(lastDiv)}${afterScript}`;
+    } else {
+      out = `${beforeScript}${parts.section}\n${afterScript}`;
+    }
+  } else {
+    out += parts.section;
+  }
+
+  if (out.includes('</script>')) {
+    out = out.replace('</script>', `${parts.script}\n</script>`);
+  } else {
+    out += `\n<script>${parts.script}\n</script>`;
+  }
+
+  console.log(logMessage);
+  return out;
+}
+
+function inferCssPrefix(liquid) {
+  const wrapMatch = liquid.match(/class=["']([a-z0-9]{2,5})-wrap["']/i);
+  if (wrapMatch) return wrapMatch[1];
+  const classMatch = liquid.match(/class=["']([a-z0-9]{2,5})-[a-z0-9-]+["']/i);
+  return classMatch ? classMatch[1] : 'pdp';
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function inferSourceDesign(productMeta, sections, labeledImages) {
