@@ -49,6 +49,24 @@ function extractImageUrls(html) {
   return [...urls];
 }
 
+function normalizeImageUrl(url) {
+  if (!url || typeof url !== 'string') return '';
+  let out = url.trim().replace(/&amp;/g, '&');
+  if (out.startsWith('//')) out = 'https:' + out;
+  return out;
+}
+
+function imageBaseKey(url) {
+  const normalized = normalizeImageUrl(url);
+  if (!normalized) return '';
+  try {
+    const u = new URL(normalized);
+    return `${u.hostname}${u.pathname}`.toLowerCase();
+  } catch (e) {
+    return normalized.split('?')[0].toLowerCase();
+  }
+}
+
 /**
  * Strip HTML tags and return visible text content.
  * Not a full parser — good enough for word-level scans.
@@ -148,6 +166,18 @@ function runPostCloneQa(ctx) {
     const matches = liquidContent.match(new RegExp(sourceHost.replace(/\./g, '\\.'), 'g')) || [];
     errors.push(`${matches.length} reference(s) to the source domain "${sourceHost}" remain in the generated HTML. These will load untranslated images from the original store.`);
   }
+
+  // Source product images are often hosted on Shopify's shared CDN instead of
+  // the source brand domain. Catch those too by comparing base image paths.
+  const liquidImageKeys = new Set(liquidImageUrls.map(imageBaseKey).filter(Boolean));
+  const leakedSourceImages = scrapedImageUrls
+    .filter(Boolean)
+    .filter(src => liquidImageKeys.has(imageBaseKey(src)));
+  if (leakedSourceImages.length > 0 && uploadedImageUrls.length > 0) {
+    const sample = leakedSourceImages[0].split('?')[0].split('/').pop();
+    errors.push(`${leakedSourceImages.length} original scraped image URL(s) still appear in the generated HTML after Shopify upload/rewrite${sample ? ` (example: ${sample})` : ''}. These may show untranslated source images.`);
+  }
+
   if (urlRewriteCount > 0) {
     info.push(`Rewrote ${urlRewriteCount} source-image URL(s) → Shopify CDN.`);
   }

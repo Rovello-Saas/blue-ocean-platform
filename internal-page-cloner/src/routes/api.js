@@ -170,6 +170,53 @@ function mergeImageUrlsForProcessing(productImages, liquidContent, maxImages = 2
   return urls.slice(0, maxImages);
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function replaceImageUrlReferences(content, oldUrl, newUrl) {
+  let out = content;
+  let changed = 0;
+  const normalizedOld = normalizeImageUrl(oldUrl);
+  if (!normalizedOld || !newUrl) return { content: out, changed };
+
+  const literalVariants = new Set([
+    oldUrl,
+    normalizedOld,
+    normalizedOld.replace(/&/g, '&amp;')
+  ]);
+
+  if (normalizedOld.startsWith('https://')) {
+    literalVariants.add(normalizedOld.replace(/^https:/, ''));
+  }
+
+  for (const variant of literalVariants) {
+    if (!variant) continue;
+    const before = out;
+    out = out.split(variant).join(newUrl);
+    if (out !== before) changed++;
+  }
+
+  // Replace any version of the same image URL that kept the same base path but
+  // changed/encoded/dropped query params. This avoids leaving untranslated
+  // cdn.shopify.com URLs behind, and avoids appending old source query strings
+  // to the new Shopify CDN URL.
+  try {
+    const u = new URL(normalizedOld);
+    const baseUrl = `${u.protocol}//${u.host}${u.pathname}`;
+    const protoRelativeBase = baseUrl.replace(/^https:/, '');
+    const patterns = [baseUrl, protoRelativeBase];
+    for (const base of patterns) {
+      const re = new RegExp(`${escapeRegExp(base)}(?:\\?[^"'<>\\s)]*)?`, 'g');
+      const before = out;
+      out = out.replace(re, newUrl);
+      if (out !== before) changed++;
+    }
+  } catch (e) {}
+
+  return { content: out, changed };
+}
+
 // POST /api/jobs - Start a clone job
 router.post('/jobs', (req, res) => {
   const { url, storeId, targetLanguage } = req.body;
@@ -663,26 +710,9 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
 
       // ── Pass 1: exact match ──
       for (const [oldUrl, newUrl] of Object.entries(urlMap)) {
-        const before = liquidContent;
-        liquidContent = liquidContent.split(oldUrl).join(newUrl);
-        if (liquidContent !== before) replaced++;
-
-        // URL without query string — AI sometimes strips the `?v=...`
-        const oldNoQuery = oldUrl.split('?')[0];
-        if (oldNoQuery !== oldUrl) {
-          const before2 = liquidContent;
-          liquidContent = liquidContent.split(oldNoQuery).join(newUrl);
-          if (liquidContent !== before2) replaced++;
-        }
-
-        // Protocol-relative form: `//host/path` — happens when the scraper kept
-        // the protocol-relative URL and the AI quoted that variant.
-        if (oldUrl.startsWith('https://')) {
-          const protoRel = oldUrl.replace(/^https:/, '');
-          const before3 = liquidContent;
-          liquidContent = liquidContent.split(protoRel).join(newUrl);
-          if (liquidContent !== before3) replaced++;
-        }
+        const result = replaceImageUrlReferences(liquidContent, oldUrl, newUrl);
+        liquidContent = result.content;
+        replaced += result.changed;
       }
 
       // ── Pass 2: residue sweep by basename ──
