@@ -108,6 +108,68 @@ function createCloneJob({ url, storeId = 'movanella', targetLanguage = null }) {
   return { jobId, status: 'scraping', storeId: store, targetLanguage: lang };
 }
 
+function normalizeImageUrl(src) {
+  if (!src || typeof src !== 'string') return '';
+  let out = src.trim().replace(/&amp;/g, '&');
+  if (out.startsWith('//')) out = 'https:' + out;
+  return out;
+}
+
+function imageDedupeKey(src) {
+  const normalized = normalizeImageUrl(src);
+  try {
+    const u = new URL(normalized);
+    return `${u.hostname}${u.pathname}`.toLowerCase();
+  } catch (e) {
+    return normalized.split('?')[0].toLowerCase();
+  }
+}
+
+function extractImageUrlsFromLiquid(liquidContent) {
+  if (!liquidContent) return [];
+  const urls = [];
+  const add = (value) => {
+    const normalized = normalizeImageUrl(value);
+    if (normalized && /^https?:\/\//i.test(normalized)) urls.push(normalized);
+  };
+
+  let match;
+  const imgRe = /<img[^>]+src\s*=\s*["']([^"']+)["']/gi;
+  while ((match = imgRe.exec(liquidContent)) !== null) add(match[1]);
+
+  const bgRe = /url\(\s*["']?([^"')]+)["']?\s*\)/gi;
+  while ((match = bgRe.exec(liquidContent)) !== null) add(match[1]);
+
+  return urls;
+}
+
+function mergeImageUrlsForProcessing(productImages, liquidContent, maxImages = 28) {
+  const urls = [];
+  const seen = new Set();
+  const productUrls = (productImages || [])
+    .map(img => typeof img === 'string' ? img : img.src)
+    .filter(Boolean);
+  const liquidUrls = extractImageUrlsFromLiquid(liquidContent);
+  const primaryGalleryCount = Math.min(18, maxImages);
+
+  const add = (src) => {
+    const normalized = normalizeImageUrl(src);
+    if (!normalized || !/^https?:\/\//i.test(normalized)) return;
+    const key = imageDedupeKey(normalized);
+    if (seen.has(key)) return;
+    seen.add(key);
+    urls.push(normalized);
+  };
+
+  // Keep the gallery/card images first, but do not let a very long gallery
+  // crowd out section-specific images the generated Liquid actually uses.
+  productUrls.slice(0, primaryGalleryCount).forEach(add);
+  liquidUrls.forEach(add);
+  productUrls.slice(primaryGalleryCount).forEach(add);
+
+  return urls.slice(0, maxImages);
+}
+
 // POST /api/jobs - Start a clone job
 router.post('/jobs', (req, res) => {
   const { url, storeId, targetLanguage } = req.body;
@@ -473,15 +535,15 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
       await setVariantsAndPricing(handle, variants, storeId);
     }
 
-    // Upload images (fix protocol-relative URLs, limit to 20 to avoid timeouts)
-    const imageUrls = productMeta.images
-      .map(img => {
-        let src = img.src;
-        if (src && src.startsWith('//')) src = 'https:' + src;
-        return src;
-      })
-      .filter(src => src && src.startsWith('http'))
-      .slice(0, 20); // Limit to 20 images max
+    // Upload images. Product-gallery images go first so the Shopify product
+    // card/gallery keeps the same primary visuals as the source. Then include
+    // any extra image URLs the generated custom sections actually referenced
+    // (comparison charts, before/after graphics, usage infographics, etc.).
+    // This prevents generated sections from leaking untranslated source URLs.
+    const productGalleryImageCount = productMeta.images.length;
+    const liquidImageCount = extractImageUrlsFromLiquid(liquidContent).length;
+    const imageUrls = mergeImageUrlsForProcessing(productMeta.images, liquidContent, 28);
+    console.log(`[${jobId}]   Image processing set: ${imageUrls.length} unique URL(s) (${productGalleryImageCount} gallery, ${liquidImageCount} section reference(s))`);
 
     // ── Step 3b: Translate + upload product images ──
     // Also builds `urlMap` (sourceUrl → Shopify CDN URL) so we can rewrite the

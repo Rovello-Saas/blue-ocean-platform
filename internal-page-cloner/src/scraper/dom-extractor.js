@@ -23,7 +23,9 @@ async function extractSections(page) {
 
     const SKIP_CLASSES = [
       'header', 'footer', 'nav', 'navbar', 'menu',
-      'cart', 'review', 'breadcrumb', 'cookie',
+      // Keep review/testimonial/proof sections: PDPs like Solawave use those as
+      // core content, and the generator needs them to mirror the source flow.
+      'cart', 'breadcrumb', 'cookie',
       'popup', 'modal', 'overlay', 'announcement'
     ];
 

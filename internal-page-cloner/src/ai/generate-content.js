@@ -60,6 +60,7 @@ You will receive a screenshot and scraped data from a source product page. Your 
 This is a page clone, not a generic ${store.name} template.
 - Preserve the source page's color palette from the screenshot and image assets. If the source page is blush/pink/rose/cream, use blush/pink/rose/cream. If it is blue, use blue. Do NOT force ${store.name}'s default colors.
 - Preserve the source page's section sequence and visual concepts as much as possible: product hero, benefits, science/technology explanation, how-to-use, results/statistics, comparison chart, before/after proof, expert/social proof, guarantee, FAQ.
+- Follow the scraped source section blueprint section-by-section. If the source has a hero/gallery, press strip, technology image, usage steps, statistics image, comparison chart, results carousel, expert quote, guarantee, and FAQ, the clone should keep that same order and rhythm. Do not replace the page with a generic marketing template.
 - Preserve source image compositions. If an image is already a before/after composite, comparison chart, infographic, dermatologist card, quote card, or guarantee graphic, use it as ONE whole image. Do NOT split it into separate "before" and "after" images. Do NOT recreate it as unrelated cards.
 - Keep the look close to the source, but rewrite copy so it is original and does not mention the source brand.
 
@@ -147,14 +148,6 @@ async function generateFullLiquid(productMeta, sections, screenshotPath, storeId
   console.log(`  [AI] Screenshot: ${(resizedBuffer.length / 1024 / 1024).toFixed(1)}MB`);
   const screenshotBase64 = resizedBuffer.toString('base64');
 
-  // Build section summaries (limit to avoid token overflow)
-  const sectionSummary = sections.slice(0, 10).map(s => ({
-    headings: s.headings?.slice(0, 3),
-    paragraphs: s.paragraphs?.slice(0, 2).map(p => p.substring(0, 200)),
-    imageCount: s.images?.length || 0,
-    firstImage: s.images?.[0]?.src?.substring(0, 150) || null
-  }));
-
   // Build available images list with semantic labels so Claude can pick the
   // right image for each section (e.g. "side sleeper" card, "size guide" card).
   // Label = alt text if non-empty, else the filename stem (lowercased, dashes/underscores → spaces).
@@ -174,21 +167,48 @@ async function generateFullLiquid(productMeta, sections, screenshotPath, storeId
     }
   }
 
-  function pushImage(img) {
+  // Build a section-by-section blueprint. This is more important than a generic
+  // "recommended flow": it tells the generator which source sections appeared,
+  // in which order, and which image belonged to each section.
+  const sectionSummary = sections.slice(0, 18).map(s => ({
+    sourceIndex: s.index,
+    className: s.className,
+    layout: s.layout,
+    boundingRect: s.boundingRect,
+    headings: s.headings?.slice(0, 4),
+    paragraphs: s.paragraphs?.slice(0, 3).map(p => p.substring(0, 260)),
+    images: (s.images || []).slice(0, 4).map(img => ({
+      label: labelFor(img),
+      src: img.src,
+      displaySize: `${img.displayWidth || 0}x${img.displayHeight || 0}`,
+      ratio: img.ratio || null,
+      ratioClass: img.ratioClass || null,
+      isBackground: !!img.isBackground
+    }))
+  }));
+
+  function pushImage(img, sourceType = 'source image') {
     if (!img?.src || seenSrcs.has(img.src)) return;
     seenSrcs.add(img.src);
-    availableImagesWithLabels.push({ src: img.src, label: labelFor(img) });
+    availableImagesWithLabels.push({ src: img.src, label: labelFor(img), sourceType });
   }
 
   // 1. Product gallery images first — these are the canonical product photos.
   //    Raise cap from 8 → 25 so sleep-position photos / size guides / callouts
   //    that sit later in the gallery actually reach the liquid generator.
-  (productMeta.images || []).slice(0, 25).forEach(pushImage);
+  (productMeta.images || []).slice(0, 25).forEach(img => {
+    pushImage(img, 'PRODUCT GALLERY / product-card image');
+  });
 
-  // 2. First image from each scraped section (up to ~10 extra) for section-specific diagrams etc.
-  sections.slice(0, 10).forEach(s => {
-    if (availableImagesWithLabels.length >= 30) return;
-    if (s.images?.[0]) pushImage(s.images[0]);
+  // 2. Important images from each scraped section for section-specific diagrams,
+  // before/after proof, comparison charts, usage callouts, guarantees, etc.
+  // We keep the cap conservative for prompt size, but high enough for pages
+  // like Solawave where the product gallery doubles as a long visual PDP.
+  sections.slice(0, 18).forEach(s => {
+    if (availableImagesWithLabels.length >= 42) return;
+    (s.images || []).slice(0, 2).forEach(img => {
+      pushImage(img, `SOURCE SECTION ${s.index}`);
+    });
   });
 
   // Flat list of URLs (kept for backwards-compatible consumers below)
@@ -208,28 +228,32 @@ async function generateFullLiquid(productMeta, sections, screenshotPath, storeId
 - Description: ${productMeta.description?.substring(0, 500) || 'N/A'}
 - Variants: ${JSON.stringify(productMeta.variants?.slice(0, 5) || [])}
 
-## SCRAPED PAGE SECTIONS
+## SOURCE SECTION BLUEPRINT
+Use this as the clone's section order. Keep the same major sections, visual rhythm, and image-to-section pairing unless a section is clearly irrelevant duplicate/navigation.
 ${JSON.stringify(sectionSummary, null, 2)}
 
 ## SOURCE DESIGN PROFILE
 ${sourceDesign.instructions}
 
 ## AVAILABLE IMAGES (use these URLs in your HTML — each has a semantic label)
-${availableImagesWithLabels.map((x, i) => `${i + 1}. [${x.label || 'unlabeled'}]  ${x.src}`).join('\n')}
+${availableImagesWithLabels.map((x, i) => `${i + 1}. [${x.sourceType || 'source image'} | ${x.label || 'unlabeled'}]  ${x.src}`).join('\n')}
 
 ## CRITICAL SOURCE IMAGES TO PRESERVE AS WHOLE IMAGES
-${criticalImages.length ? criticalImages.map((x, i) => `${i + 1}. [${x.label || 'unlabeled'}]  ${x.src}`).join('\n') : 'No critical composite images detected.'}
+${criticalImages.length ? criticalImages.map((x, i) => `${i + 1}. [${x.sourceType || 'source image'} | ${x.label || 'unlabeled'}]  ${x.src}`).join('\n') : 'No critical composite images detected.'}
 
 ## BEFORE/AFTER SLIDER ASSETS
 ${formatBeforeAfterAssets(beforeAfterAssets)}
 
 IMAGE USAGE RULES:
 - Pick the SEMANTICALLY most appropriate URL for each slot. The label in square brackets tells you what each image shows (e.g. "hotel pillow meagan side sleeping" is a side-sleeper photo; "size guide" is a sizing diagram; "hotel pillow callouts" is a features-callout diagram).
+- Prefer the PRODUCT GALLERY / product-card images for every image slot when they match the section. The Shopify product gallery and the generated content sections should reuse the same source assets, so the collection/product card and page body feel connected.
+- For each SOURCE SECTION BLUEPRINT item that has an image, use that exact image URL in the matching cloned section where possible. Do not substitute a random lifestyle shot for a comparison chart, before/after image, usage infographic, stats graphic, or guarantee card.
 - DO NOT reuse the same image URL across multiple different sections. If you have a "Side Sleeper / Back Sleeper / Stomach Sleeper" grid and three distinct sleeper photos are available, use three different URLs — one for each card. Only reuse an image if the layout intentionally shows the same product angle twice (e.g. hero + dark-hero split) AND no alternate angle is available.
 - If you run out of distinct semantically-matching images for a section, pick the closest-fitting unused image rather than repeating one you already used.
 - Prefer images with descriptive labels (diagrams, callouts, benefits, lifestyle shots) for content sections. Reserve the clean product-only shots for the gallery/hero.
 - If a critical source image is listed above, preserve it as a complete visual asset in the matching section. Before/after composite images must remain composite images.
 - If BEFORE/AFTER SLIDER ASSETS lists composite images, you MUST build a horizontal results slider/carousel using those complete images. If it lists a before + after pair instead, build a draggable compare slider with those exact two image URLs.
+${targetLanguage ? `- Target language is ${LANGUAGE_LABELS[targetLanguage] || targetLanguage}. Still reference the exact source image URLs in the HTML. The pipeline will edit those images with Nano Banana Pro, translate visible image text to ${LANGUAGE_LABELS[targetLanguage] || targetLanguage}, upload them to Shopify, and rewrite these URLs to the translated Shopify CDN versions.` : ''}
 
 ## REFERENCE STRUCTURE
 Here is the HTML structure of a previous product page we built. Use it only for Liquid mechanics, class-prefix conventions, responsive CSS, and FAQ JavaScript. Do NOT copy its colors or force its section order when the source screenshot/images show a different visual style:
