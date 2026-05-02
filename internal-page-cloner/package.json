@@ -20,7 +20,6 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
     "@google/genai": "^1.46.0",
-    "canvas": "^3.2.2",
     "dotenv": "^16.6.1",
     "express": "^5.2.1",
     "handlebars": "^4.7.8",

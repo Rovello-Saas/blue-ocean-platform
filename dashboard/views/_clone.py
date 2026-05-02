@@ -207,12 +207,11 @@ def main() -> None:
         "and publish it to the selected store."
     )
 
-    client = PageClonerClient()
-
     # Health check up front — fail fast if the Node service isn't running.
     # Cheaper than waiting for the user to click Start and get a confusing
     # connection error.
     try:
+        client = PageClonerClient()
         cloner_ready = client.health_check()
     except Exception as exc:
         st.error(
