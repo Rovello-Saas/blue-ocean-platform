@@ -60,31 +60,36 @@ You will receive a screenshot and scraped data from a source product page. Your 
 This is a page clone, not a generic ${store.name} template.
 - Preserve the source page's color palette from the screenshot and image assets. If the source page is blush/pink/rose/cream, use blush/pink/rose/cream. If it is blue, use blue. Do NOT force ${store.name}'s default colors.
 - Preserve the source page's section sequence and visual concepts as much as possible: product hero, benefits, science/technology explanation, how-to-use, results/statistics, comparison chart, before/after proof, expert/social proof, guarantee, FAQ.
-- Follow the scraped source section blueprint section-by-section. If the source has a hero/gallery, press strip, technology image, usage steps, statistics image, comparison chart, results carousel, expert quote, guarantee, and FAQ, the clone should keep that same order and rhythm. Do not replace the page with a generic marketing template.
 - Preserve source image compositions. If an image is already a before/after composite, comparison chart, infographic, dermatologist card, quote card, or guarantee graphic, use it as ONE whole image. Do NOT split it into separate "before" and "after" images. Do NOT recreate it as unrelated cards.
 - Keep the look close to the source, but rewrite copy so it is original and does not mention the source brand.
+
+## SECTION FIDELITY (HARD REQUIREMENT)
+
+The user message includes a SOURCE SECTION BLUEPRINT — a JSON array of every distinct content section detected on the source page, in vertical order, with headings, paragraphs, and images for each.
+
+Your output MUST contain ONE rendered section for EACH meaningful blueprint entry, in the same order. Do not collapse multiple distinct source sections into one. Do not stop at "the recommended ten sections." If the blueprint has 14 entries, your output should have ~14 corresponding sections.
+
+You MAY merge two near-duplicate adjacent blueprint entries (e.g. the same hero shown twice) into one. You MAY skip a blueprint entry only when it is clearly site chrome that escaped the scraper — navigation residue, cookie banner, related-products carousel, footer fragment. Otherwise emit it.
+
+When you encounter these recurring source-page patterns, emit a section that mirrors the structure (do not flatten them into a generic content-row):
+
+- **"Why us vs others" / competitive comparison** — usually a 2-column or 4-row layout with our-claim vs their-claim. Render as a 2-column comparison grid with checkmark-vs-X icons, NOT as plain bullets. **Localization rule: if the source brags about US-specific retailers ("2,100+ U.S. retailers", "Ulta / Nordstrom / Neiman Marcus") or shows a U.S. map, REPLACE the geographic claim with a localized equivalent for the target language market — e.g. for German, "über 2.100 Fachgeschäfte in Europa" with a Europe map or generic retail-rosette graphic. Never ship a U.S. map on a non-English page.**
+- **"Good to know" educational bullets** — 3-5 short fact bullets with small icons. Emit as a compact icon-list strip, not as full content-rows.
+- **"4 technologies / one device" tech breakdown** — 4 cards in a grid, each with an icon/diagram, a technology name, and a 1-2-sentence description. Emit as a 4-card grid, NOT as 4 stacked content-rows.
+- **3-step "how to use"** — a numbered 1/2/3 step layout with a small image or icon per step. Emit as a 3-column step grid.
+- **Shipping / returns / warranty 3-4 box strip** — small icon + heading + one-line copy in 3 or 4 columns. Emit as an icon-strip, not as content-rows.
+- **"Targeted ritual" / 4 benefits with icons** — 4 column grid with icons and short labels. Emit as a 4-column icon grid.
+- **"Inside the tech" / labeled diagram** — a central product photo with 4 callouts pointing to features. Emit as a centered figure with surrounding labeled blocks (or as the source image used whole if it already has the labels baked in).
+- **Expert / doctor endorsement cards** — 2-3 expert headshots with name, credentials, affiliation, and an optional quote or video thumbnail. Emit as a 2- or 3-column card row.
+- **Real results / before-after testimonials carousel** — a horizontal scroller of 4+ before/after pairs, each with a customer name, age, result label, and quote. Use a slider/carousel, not a stack of 3 separate sections.
 
 ## REQUIRED OUTPUT STRUCTURE
 
 Your output must be a complete file with these parts:
 
 1. \`<style>\` block with ALL CSS (unique prefix per product, e.g. \`xyz-\` for "XYZ Product")
-2. \`<div class="PREFIX-wrap">\` containing all sections
-3. \`<script>\` block for FAQ accordion interactivity
-
-## RECOMMENDED SECTION FLOW
-
-Follow the source page's order when the screenshot/images show it. A skincare device page usually needs:
-1. **Trust / proof strip** — small credibility badges and guarantee points
-2. **Benefit cards or technology grid** — red light, warmth, massage, absorption/current, etc.
-3. **Science / how it works section** — use the source diagram or technology infographic if available
-4. **How to use section** — use the source usage image/steps if available
-5. **Results/statistics section** — preserve the source stats style and palette
-6. **Comparison chart** — if a chart image is available, use the chart image whole; otherwise create a close table
-7. **Before & after / real results** — use the before-after composite image(s) whole and prominent
-8. **Expert/social proof / customer quotes**
-9. **Guarantee / risk-free section**
-10. **FAQ Accordion** — 5-7 collapsible Q&A items with JavaScript toggle
+2. \`<div class="PREFIX-wrap">\` containing all sections in source order
+3. \`<script>\` block for any interactivity (FAQ accordion, before/after slider, carousels)
 
 ## CRITICAL RULES
 
@@ -106,7 +111,10 @@ Follow the source page's order when the screenshot/images show it. A skincare de
 - SVG icons: use Feather-style stroke icons (stroke=source heading color, stroke-width="1.5", fill="none", viewBox="0 0 24 24"). For small decorative accent icons (checkmarks in the trust bar, stars), use source accent color.
 - IMAGE CROPPING — content-card images (use-case cards, feature cards, diagrams, sleep-position illustrations, comparison images, review photos) MUST use \`aspect-ratio: 4/3; object-fit: contain; background: #fff; padding: 8px;\` — NEVER \`height: Npx; object-fit: cover\`. Source images are frequently infographics with labels, icons, arrows, or text baked in; \`cover\` crops that content off. Only the main hero or dark-hero banner — an edge-to-edge lifestyle photo — may use \`object-fit: cover\` (and even then, prefer a large min-height over a fixed pixel height).
 - BEFORE/AFTER RULE — Any image whose label or alt text includes "before-after", "before and after", "Day 0", "Day 30", or "Real Results" must be shown as a single complete image in a before/after proof section. Never crop it, split it, or rebuild it as two separate unrelated images.
-- BEFORE/AFTER SLIDER RULE — For Solawave-like pages, the before/after proof should feel like the source site: a horizontal results slider/carousel of whole before/after composite images with arrows/dots. If truly separate before and after photos are available instead, build a draggable compare slider with stacked images, a range input, a vertical divider, and "Before" / "After" labels. Never turn composite before/after images into unrelated separate cards.
+- BEFORE/AFTER SLIDER RULE — Build the before/after proof as an INTERACTIVE drag-to-reveal compare slider, not a static image. Two cases:
+  • Separate before + after photos available → stack them, clip the "before" with \`clip-path: inset(0 calc(100% - var(--position)) 0 0)\`, expose a range input + vertical divider + circular handle + "Before"/"After" tags.
+  • Only composite [BEFORE | AFTER] images available → render each composite as a compare slider where two stacked layers each show one half of the same image via \`background-size: 200% 100%\` with \`background-position: 0% 50%\` (left/before layer) and \`background-position: 100% 50%\` (right/after layer). The before layer's width is controlled by the slider position. This produces a real drag-to-reveal effect on a single composite.
+  • If multiple composites or pairs exist, wrap the compare sliders in a horizontal carousel with prev/next + dots so the user can browse different testimonials. Localize the "Before"/"After" tags to the target language (Vorher/Nachher for German, Voor/Na for Dutch, Avant/Après for French, etc.).
 
 ## OUTPUT FORMAT
 
@@ -235,8 +243,9 @@ async function generateFullLiquid(productMeta, sections, screenshotPath, storeId
 - Description: ${productMeta.description?.substring(0, 500) || 'N/A'}
 - Variants: ${JSON.stringify(productMeta.variants?.slice(0, 5) || [])}
 
-## SOURCE SECTION BLUEPRINT
-Use this as the clone's section order. Keep the same major sections, visual rhythm, and image-to-section pairing unless a section is clearly irrelevant duplicate/navigation.
+## SOURCE SECTION BLUEPRINT (${sectionSummary.length} entries — emit one rendered section per entry, in this order)
+This blueprint is a HARD REQUIREMENT, not a recommendation. Every entry below should become a corresponding section in your output unless it is obviously site chrome (nav, footer, cookie banner, related-products). Do not collapse 4-card grids, 3-step how-tos, or expert-card rows into single content-rows. Do not stop at 10 sections — match the blueprint count.
+
 ${JSON.stringify(sectionSummary, null, 2)}
 
 ## SOURCE DESIGN PROFILE
@@ -278,7 +287,7 @@ Now generate the complete file for "${productMeta.title}". Remember: unique CSS 
     getSystemPrompt(storeId, targetLanguage),
     screenshotBase64,
     userMessage,
-    { maxTokens: 16384 }
+    { maxTokens: 32000 }
   );
 
   // Clean up response — remove markdown fences if present
@@ -296,7 +305,7 @@ Now generate the complete file for "${productMeta.title}". Remember: unique CSS 
   // sections keep their intentional crop.
   liquid = sanitizeCardImageCropping(liquid);
   liquid = applySourcePaletteGuard(liquid, sourceDesign);
-  liquid = injectBeforeAfterSliderFallback(liquid, beforeAfterAssets, sourceDesign);
+  liquid = injectBeforeAfterSliderFallback(liquid, beforeAfterAssets, sourceDesign, targetLanguage);
   liquid = injectProductCardVisualsFallback(liquid, productCardAssets, sourceDesign, targetLanguage);
 
   // Validate it has the required parts
@@ -505,7 +514,7 @@ ${cards}
   return { css, section, script: '' };
 }
 
-function injectBeforeAfterSliderFallback(liquid, assets, sourceDesign) {
+function injectBeforeAfterSliderFallback(liquid, assets, sourceDesign, targetLanguage) {
   if (hasBeforeAfterInteractiveSection(liquid)) return liquid;
 
   const prefix = inferCssPrefix(liquid);
@@ -519,8 +528,8 @@ function injectBeforeAfterSliderFallback(liquid, assets, sourceDesign) {
   if (assets.composite.length) {
     return injectSectionAndScript(
       liquid,
-      buildBeforeAfterCarousel(prefix, colors, assets.composite.slice(0, 6)),
-      '  [AI] Injected before/after carousel fallback'
+      buildBeforeAfterCarousel(prefix, colors, assets.composite.slice(0, 6), targetLanguage),
+      '  [AI] Injected before/after carousel-of-sliders fallback'
     );
   }
 
@@ -530,7 +539,7 @@ function injectBeforeAfterSliderFallback(liquid, assets, sourceDesign) {
 
   return injectSectionAndScript(
     liquid,
-    buildBeforeAfterCompareSlider(prefix, colors, before, after),
+    buildBeforeAfterCompareSlider(prefix, colors, before, after, targetLanguage),
     '  [AI] Injected before/after comparison slider fallback'
   );
 }
@@ -539,11 +548,45 @@ function hasBeforeAfterInteractiveSection(liquid) {
   return /type=["']range["']|before-after-slider|ba-slider|ba-carousel|data-before-after-(?:slider|carousel)|results?-(?:slider|carousel)/i.test(liquid);
 }
 
-function buildBeforeAfterCarousel(prefix, colors, images) {
-  const slides = images.map((image, i) => `
+function beforeAfterCopy(targetLanguage) {
+  const copy = {
+    de: { heading: 'Echte Ergebnisse', subhead: 'Schiebe den Regler, um Vorher und Nachher zu vergleichen.', before: 'Vorher', after: 'Nachher', prev: 'Vorheriges Ergebnis', next: 'Nächstes Ergebnis' },
+    nl: { heading: 'Echte resultaten', subhead: 'Schuif de regelaar om voor en na te vergelijken.', before: 'Voor', after: 'Na', prev: 'Vorig resultaat', next: 'Volgend resultaat' },
+    fr: { heading: 'De vrais résultats', subhead: 'Faites glisser le curseur pour comparer avant et après.', before: 'Avant', after: 'Après', prev: 'Résultat précédent', next: 'Résultat suivant' },
+    es: { heading: 'Resultados reales', subhead: 'Desliza el control para comparar antes y después.', before: 'Antes', after: 'Después', prev: 'Resultado anterior', next: 'Siguiente resultado' },
+    it: { heading: 'Risultati reali', subhead: 'Trascina il cursore per confrontare prima e dopo.', before: 'Prima', after: 'Dopo', prev: 'Risultato precedente', next: 'Risultato successivo' }
+  };
+  return copy[targetLanguage] || { heading: 'Real results you can see', subhead: 'Drag the handle to compare before and after.', before: 'Before', after: 'After', prev: 'Previous result', next: 'Next result' };
+}
+
+function buildBeforeAfterCarousel(prefix, colors, images, targetLanguage) {
+  const copy = beforeAfterCopy(targetLanguage);
+
+  // Each composite is rendered as an interactive compare slider. We assume the
+  // composite is a horizontal [BEFORE | AFTER] photo (the dominant convention
+  // on Solawave-style real-results carousels). The trick: we use the same
+  // composite as a background-image at 200% width on two stacked layers, with
+  // background-position cropping each layer to one half. The "before" layer is
+  // clip-pathed by the slider position, revealing the "after" layer beneath.
+  // This gives the user a real drag-to-reveal experience on a single composite
+  // image without needing separate before/after files.
+  const slides = images.map((image, i) => {
+    const safeSrc = escapeHtml(image.src);
+    const safeAlt = escapeHtml(image.label || `Before and after result ${i + 1}`);
+    return `
         <div class="${prefix}-ba-slide" role="group" aria-label="Result ${i + 1} of ${images.length}">
-          <img src="${escapeHtml(image.src)}" alt="${escapeHtml(image.label || `Before and after result ${i + 1}`)}" loading="lazy">
-        </div>`).join('');
+          <div class="${prefix}-ba-compare" data-before-after-compare style="--position: 50%;">
+            <div class="${prefix}-ba-after-layer" style="background-image: url('${safeSrc}');" role="img" aria-label="${safeAlt} – ${escapeHtml(copy.after)}"></div>
+            <div class="${prefix}-ba-before-layer" style="background-image: url('${safeSrc}');" role="img" aria-label="${safeAlt} – ${escapeHtml(copy.before)}"></div>
+            <span class="${prefix}-ba-tag ${prefix}-ba-tag-before">${escapeHtml(copy.before)}</span>
+            <span class="${prefix}-ba-tag ${prefix}-ba-tag-after">${escapeHtml(copy.after)}</span>
+            <span class="${prefix}-ba-divider" aria-hidden="true"></span>
+            <span class="${prefix}-ba-handle" aria-hidden="true">↔</span>
+            <input class="${prefix}-ba-range" type="range" min="0" max="100" value="50" aria-label="${escapeHtml(copy.subhead)}">
+          </div>
+        </div>`;
+  }).join('');
+
   const dots = images.map((_, i) => `
         <button class="${prefix}-ba-dot" type="button" aria-label="Show result ${i + 1}" aria-current="${i === 0 ? 'true' : 'false'}"></button>`).join('');
 
@@ -592,13 +635,97 @@ function buildBeforeAfterCarousel(prefix, colors, images) {
     padding: clamp(10px, 2vw, 18px);
     background: #fff;
   }
-  .${prefix}-ba-slide img {
-    display: block;
+  .${prefix}-ba-compare {
+    position: relative;
     width: 100%;
     aspect-ratio: 4 / 3;
-    object-fit: contain;
-    background: #fff;
+    overflow: hidden;
     border-radius: 22px;
+    background: #f6eee9;
+    user-select: none;
+    touch-action: none;
+  }
+  .${prefix}-ba-after-layer,
+  .${prefix}-ba-before-layer {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background-size: 200% 100%;
+    background-repeat: no-repeat;
+    background-color: #fff;
+  }
+  .${prefix}-ba-after-layer {
+    left: 0;
+    right: 0;
+    background-position: 100% 50%;
+  }
+  .${prefix}-ba-before-layer {
+    left: 0;
+    width: var(--position, 50%);
+    background-position: 0% 50%;
+  }
+  .${prefix}-ba-tag {
+    position: absolute;
+    top: 14px;
+    z-index: 3;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .92);
+    color: ${colors.dark};
+    font-weight: 800;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    font-size: 11px;
+    pointer-events: none;
+  }
+  .${prefix}-ba-tag-before { left: 14px; }
+  .${prefix}-ba-tag-after  { right: 14px; }
+  .${prefix}-ba-divider {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: var(--position, 50%);
+    z-index: 4;
+    width: 3px;
+    transform: translateX(-50%);
+    background: #fff;
+    box-shadow: 0 0 0 1px rgba(82, 38, 58, .14);
+    pointer-events: none;
+  }
+  .${prefix}-ba-handle {
+    position: absolute;
+    top: 50%;
+    left: var(--position, 50%);
+    z-index: 5;
+    display: grid;
+    place-items: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 999px;
+    transform: translate(-50%, -50%);
+    background: #fff;
+    color: ${colors.accent};
+    box-shadow: 0 12px 32px rgba(82, 38, 58, .25);
+    font-weight: 800;
+    pointer-events: none;
+    font-size: 18px;
+  }
+  .${prefix}-ba-range {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    appearance: none;
+    background: transparent;
+    opacity: 0;
+    cursor: ew-resize;
+  }
+  .${prefix}-ba-range::-webkit-slider-thumb {
+    appearance: none;
+    width: 60px;
+    height: 100%;
   }
   .${prefix}-ba-controls {
     display: flex;
@@ -646,17 +773,21 @@ function buildBeforeAfterCarousel(prefix, colors, images) {
     .${prefix}-ba-slide {
       padding: 8px;
     }
-    .${prefix}-ba-slide img {
-      aspect-ratio: 3 / 4;
+    .${prefix}-ba-compare {
+      aspect-ratio: 4 / 3;
       border-radius: 18px;
+    }
+    .${prefix}-ba-handle {
+      width: 44px;
+      height: 44px;
     }
   }`;
 
   const section = `
   <section class="${prefix}-ba-section">
     <div class="${prefix}-ba-heading">
-      <h2>Real results you can see</h2>
-      <p>Swipe through the before and after proof, shown as complete source images.</p>
+      <h2>${escapeHtml(copy.heading)}</h2>
+      <p>${escapeHtml(copy.subhead)}</p>
     </div>
     <div class="${prefix}-ba-carousel" data-before-after-carousel>
       <div class="${prefix}-ba-viewport">
@@ -664,17 +795,27 @@ function buildBeforeAfterCarousel(prefix, colors, images) {
 ${slides}
         </div>
       </div>
-      <div class="${prefix}-ba-controls" aria-label="Before and after results">
-        <button class="${prefix}-ba-button ${prefix}-ba-prev" type="button" aria-label="Previous result">‹</button>
+      <div class="${prefix}-ba-controls" aria-label="${escapeHtml(copy.heading)}">
+        <button class="${prefix}-ba-button ${prefix}-ba-prev" type="button" aria-label="${escapeHtml(copy.prev)}">‹</button>
         <div class="${prefix}-ba-dots">
 ${dots}
         </div>
-        <button class="${prefix}-ba-button ${prefix}-ba-next" type="button" aria-label="Next result">›</button>
+        <button class="${prefix}-ba-button ${prefix}-ba-next" type="button" aria-label="${escapeHtml(copy.next)}">›</button>
       </div>
     </div>
   </section>`;
 
   const script = `
+  document.querySelectorAll('.${prefix}-ba-compare').forEach(function(compare) {
+    var range = compare.querySelector('.${prefix}-ba-range');
+    if (!range) return;
+    var update = function() {
+      compare.style.setProperty('--position', range.value + '%');
+    };
+    range.addEventListener('input', update);
+    range.addEventListener('change', update);
+    update();
+  });
   document.querySelectorAll('.${prefix}-ba-carousel').forEach(function(carousel) {
     var track = carousel.querySelector('.${prefix}-ba-track');
     var slides = Array.prototype.slice.call(carousel.querySelectorAll('.${prefix}-ba-slide'));
@@ -701,7 +842,8 @@ ${dots}
   return { css, section, script };
 }
 
-function buildBeforeAfterCompareSlider(prefix, colors, before, after) {
+function buildBeforeAfterCompareSlider(prefix, colors, before, after, targetLanguage) {
+  const copy = beforeAfterCopy(targetLanguage);
   const css = `
 
   .${prefix}-ba-section {
@@ -819,17 +961,17 @@ function buildBeforeAfterCompareSlider(prefix, colors, before, after) {
   const section = `
   <section class="${prefix}-ba-section">
     <div class="${prefix}-ba-heading">
-      <h2>Real results you can compare</h2>
-      <p>Drag the slider to see how the before and after photos line up.</p>
+      <h2>${escapeHtml(copy.heading)}</h2>
+      <p>${escapeHtml(copy.subhead)}</p>
     </div>
     <div class="${prefix}-ba-slider" data-before-after-slider>
-      <img src="${escapeHtml(after.src)}" alt="${escapeHtml(after.label || 'After result')}" loading="lazy">
-      <img class="${prefix}-ba-before-img" src="${escapeHtml(before.src)}" alt="${escapeHtml(before.label || 'Before result')}" loading="lazy">
-      <span class="${prefix}-ba-label ${prefix}-ba-label-before">Before</span>
-      <span class="${prefix}-ba-label ${prefix}-ba-label-after">After</span>
+      <img src="${escapeHtml(after.src)}" alt="${escapeHtml(after.label || copy.after)}" loading="lazy">
+      <img class="${prefix}-ba-before-img" src="${escapeHtml(before.src)}" alt="${escapeHtml(before.label || copy.before)}" loading="lazy">
+      <span class="${prefix}-ba-label ${prefix}-ba-label-before">${escapeHtml(copy.before)}</span>
+      <span class="${prefix}-ba-label ${prefix}-ba-label-after">${escapeHtml(copy.after)}</span>
       <span class="${prefix}-ba-divider"></span>
       <span class="${prefix}-ba-handle" aria-hidden="true">↔</span>
-      <input class="${prefix}-ba-range" type="range" min="0" max="100" value="50" aria-label="Compare before and after photos">
+      <input class="${prefix}-ba-range" type="range" min="0" max="100" value="50" aria-label="${escapeHtml(copy.subhead)}">
     </div>
   </section>`;
 
