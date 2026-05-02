@@ -319,7 +319,8 @@ async function extractProductMeta(page) {
             meta.images = imgs.map((img, i) => ({
               src: typeof img === 'string' ? img : img.url || img.contentUrl || '',
               alt: typeof img === 'string' ? '' : img.name || '',
-              position: i + 1
+              position: i + 1,
+              sourceRole: 'product-structured-data'
             })).filter(img => img.src);
           }
         }
@@ -434,6 +435,46 @@ async function extractProductMeta(page) {
         return linkedHandle !== currentHandle;
       }
 
+      function hasProductMediaAncestor(img) {
+        let cur = img;
+        for (let i = 0; i < 14 && cur && cur !== document.body; i++) {
+          const cls = (cur.className?.toString() || '').toLowerCase();
+          const id = (cur.id || '').toLowerCase();
+          const aria = (cur.getAttribute && (cur.getAttribute('aria-label') || '')).toLowerCase();
+          const role = (cur.getAttribute && (cur.getAttribute('role') || '')).toLowerCase();
+          const hay = `${cls} ${id} ${aria} ${role}`;
+
+          if (
+            hay.includes('product') && (
+              hay.includes('media') ||
+              hay.includes('gallery') ||
+              hay.includes('image') ||
+              hay.includes('photo') ||
+              hay.includes('thumb') ||
+              hay.includes('slider') ||
+              hay.includes('carousel') ||
+              hay.includes('swiper') ||
+              hay.includes('splide')
+            )
+          ) return true;
+
+          if (
+            hay.includes('product__media') ||
+            hay.includes('product-media') ||
+            hay.includes('product-gallery') ||
+            hay.includes('product_gallery') ||
+            hay.includes('media-gallery') ||
+            hay.includes('product-form__media') ||
+            hay.includes('thumbnail-list') ||
+            hay.includes('product__thumb') ||
+            hay.includes('product-thumbnail')
+          ) return true;
+
+          cur = cur.parentElement;
+        }
+        return false;
+      }
+
       // Resolve real image URL — falls through placeholder data:image/gif to
       // data-src / data-srcset / etc. See explanation in extractImages above;
       // this copy is needed because each page.evaluate() has its own scope.
@@ -475,7 +516,21 @@ async function extractProductMeta(page) {
 
         // Skip tiny images (icons, logos, badges)
         const rect = img.getBoundingClientRect();
-        if (rect.width < 150 || rect.height < 150) return;
+        const inProductMedia = hasProductMediaAncestor(img);
+        const naturalW = img.naturalWidth || 0;
+        const naturalH = img.naturalHeight || 0;
+        const srcsetText = [
+          img.srcset || '',
+          img.dataset?.srcset || '',
+          img.dataset?.lazySrcset || ''
+        ].join(',');
+        const hasLargeSource = naturalW >= 300 || naturalH >= 300 ||
+          /(?:width|w)=(?:3\d\d|[4-9]\d\d|\d{4,})/i.test(src) ||
+          /(?:\s|,)(?:3\d\d|[4-9]\d\d|\d{4,})w\b/i.test(srcsetText) ||
+          /(?:width|w)=(?:3\d\d|[4-9]\d\d|\d{4,})/i.test(srcsetText);
+        const visibleEnough = rect.width >= 150 && rect.height >= 150;
+        const productMediaThumbnail = inProductMedia && rect.width >= 45 && rect.height >= 45 && hasLargeSource;
+        if (!visibleEnough && !productMediaThumbnail) return;
 
         // Skip images with icon/logo in path
         if (src.includes('icon') || src.includes('logo') || src.includes('badge') || src.includes('payment')) return;
@@ -499,7 +554,12 @@ async function extractProductMeta(page) {
         const baseSrc = bestSrc.split('?')[0];
         if (!existingSrcs.has(baseSrc)) {
           existingSrcs.add(baseSrc);
-          meta.images.push({ src: bestSrc, alt: img.alt || '', position: meta.images.length + 1 });
+          meta.images.push({
+            src: bestSrc,
+            alt: img.alt || '',
+            position: meta.images.length + 1,
+            sourceRole: inProductMedia ? 'product-media-gallery' : 'page-image'
+          });
         }
       });
     }

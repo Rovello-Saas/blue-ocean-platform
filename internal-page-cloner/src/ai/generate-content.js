@@ -180,6 +180,7 @@ async function generateFullLiquid(productMeta, sections, screenshotPath, storeId
     images: (s.images || []).slice(0, 4).map(img => ({
       label: labelFor(img),
       src: img.src,
+      sourceRole: img.sourceRole || null,
       displaySize: `${img.displayWidth || 0}x${img.displayHeight || 0}`,
       ratio: img.ratio || null,
       ratioClass: img.ratioClass || null,
@@ -197,7 +198,12 @@ async function generateFullLiquid(productMeta, sections, screenshotPath, storeId
   //    Raise cap from 8 → 25 so sleep-position photos / size guides / callouts
   //    that sit later in the gallery actually reach the liquid generator.
   (productMeta.images || []).slice(0, 25).forEach(img => {
-    pushImage(img, 'PRODUCT GALLERY / product-card image');
+    const role = img.sourceRole === 'product-media-gallery'
+      ? 'PRODUCT MEDIA CAROUSEL / product-card thumbnail'
+      : img.sourceRole === 'product-structured-data'
+        ? 'PRODUCT STRUCTURED DATA / product-card image'
+        : 'PRODUCT GALLERY / product-card image';
+    pushImage(img, role);
   });
 
   // 2. Important images from each scraped section for section-specific diagrams,
@@ -218,6 +224,7 @@ async function generateFullLiquid(productMeta, sections, screenshotPath, storeId
     /(before[-\s]?after|before and after|day\s*0|day\s*30|real results|comparison chart|dermatologist|guarantee|how to use|easy to use|3-5x|visible results)/i.test(x.label || '')
   );
   const beforeAfterAssets = findBeforeAfterImages(availableImagesWithLabels);
+  const productCardAssets = findProductCardVisualAssets(availableImagesWithLabels);
 
   const userMessage = `Create a complete ${storeName} product page liquid file for this product.
 
@@ -244,7 +251,11 @@ ${criticalImages.length ? criticalImages.map((x, i) => `${i + 1}. [${x.sourceTyp
 ## BEFORE/AFTER SLIDER ASSETS
 ${formatBeforeAfterAssets(beforeAfterAssets)}
 
+## PRODUCT CARD / MEDIA CAROUSEL VISUAL ASSETS
+${formatProductCardAssets(productCardAssets)}
+
 IMAGE USAGE RULES:
+- The PRODUCT CARD / MEDIA CAROUSEL VISUAL ASSETS are the same card-like images the shopper sees in the source product media carousel. Treat them as primary reference sections. If they are infographics, comparison cards, stats cards, usage cards, or feature cards, show them as complete images in matching sections rather than inventing unrelated replacement layouts.
 - Pick the SEMANTICALLY most appropriate URL for each slot. The label in square brackets tells you what each image shows (e.g. "hotel pillow meagan side sleeping" is a side-sleeper photo; "size guide" is a sizing diagram; "hotel pillow callouts" is a features-callout diagram).
 - Prefer the PRODUCT GALLERY / product-card images for every image slot when they match the section. The Shopify product gallery and the generated content sections should reuse the same source assets, so the collection/product card and page body feel connected.
 - For each SOURCE SECTION BLUEPRINT item that has an image, use that exact image URL in the matching cloned section where possible. Do not substitute a random lifestyle shot for a comparison chart, before/after image, usage infographic, stats graphic, or guarantee card.
@@ -286,6 +297,7 @@ Now generate the complete file for "${productMeta.title}". Remember: unique CSS 
   liquid = sanitizeCardImageCropping(liquid);
   liquid = applySourcePaletteGuard(liquid, sourceDesign);
   liquid = injectBeforeAfterSliderFallback(liquid, beforeAfterAssets, sourceDesign);
+  liquid = injectProductCardVisualsFallback(liquid, productCardAssets, sourceDesign, targetLanguage);
 
   // Validate it has the required parts
   if (!liquid.includes('<style>') || !liquid.includes('<div')) {
@@ -347,6 +359,150 @@ function formatBeforeAfterAssets(assets) {
     });
   }
   return lines.length ? lines.join('\n') : 'No before/after assets detected.';
+}
+
+function findProductCardVisualAssets(labeledImages) {
+  const cardLabelRe = /4[-\s]?in[-\s]?1|treatment|science|radiant|easy to use|how to use|3[-\s]?5x|visible results|comparison|vs\.?|others|benefit|feature|guarantee|chart|routine|step|week|stat|result|thermal|galvanic|red light|massage/i;
+  const productMedia = labeledImages.filter(image =>
+    /product (?:media carousel|gallery|structured data)|product-card/i.test(image.sourceType || '')
+  );
+  const semanticallyCardLike = productMedia.filter(image => cardLabelRe.test(image.label || ''));
+  return uniqueImages(semanticallyCardLike.length >= 2 ? semanticallyCardLike : productMedia)
+    .slice(0, 8);
+}
+
+function formatProductCardAssets(images) {
+  if (!images.length) return 'No product-card/media-carousel assets detected.';
+  return images.map((image, i) =>
+    `${i + 1}. [${image.sourceType || 'product media'} | ${image.label || 'unlabeled'}] ${image.src}`
+  ).join('\n');
+}
+
+function injectProductCardVisualsFallback(liquid, productCardAssets, sourceDesign, targetLanguage) {
+  if (!productCardAssets.length) return liquid;
+  const required = Math.min(3, productCardAssets.length);
+  const used = productCardAssets.filter(image => liquid.includes(image.src)).length;
+  if (used >= required) return liquid;
+
+  const prefix = inferCssPrefix(liquid);
+  const colors = {
+    accent: sourceDesign.accent || '#e66f8f',
+    dark: sourceDesign.dark || '#52263a',
+    soft: sourceDesign.soft || '#fde8ee',
+    cream: sourceDesign.cream || '#fff7f1'
+  };
+  const assetsToShow = productCardAssets.slice(0, Math.min(6, productCardAssets.length));
+  return injectSectionAndScript(
+    liquid,
+    buildProductCardVisualsSection(prefix, colors, assetsToShow, targetLanguage),
+    `  [AI] Injected product-card visual fallback (${used}/${required} primary asset(s) used by model)`
+  );
+}
+
+function productCardFallbackCopy(targetLanguage) {
+  const copy = {
+    de: {
+      title: 'Alles, was dieses Gerät kann',
+      subtitle: 'Die wichtigsten Produktvisuals aus dem ursprünglichen Karussell, vollständig erhalten.'
+    },
+    nl: {
+      title: 'Alles wat dit apparaat doet',
+      subtitle: 'De belangrijkste visuals uit de oorspronkelijke productcarrousel, volledig behouden.'
+    },
+    fr: {
+      title: 'Tout ce que cet appareil peut faire',
+      subtitle: 'Les visuels clés du carrousel produit d’origine, conservés dans leur intégralité.'
+    },
+    es: {
+      title: 'Todo lo que este dispositivo puede hacer',
+      subtitle: 'Las imágenes clave del carrusel original del producto, conservadas completas.'
+    },
+    it: {
+      title: 'Tutto quello che questo dispositivo può fare',
+      subtitle: 'Le immagini chiave del carosello prodotto originale, mantenute complete.'
+    }
+  };
+  return copy[targetLanguage] || {
+    title: 'Everything this device is built to do',
+    subtitle: 'The key visuals from the original product carousel, preserved as complete reference cards.'
+  };
+}
+
+function buildProductCardVisualsSection(prefix, colors, images, targetLanguage) {
+  const copy = productCardFallbackCopy(targetLanguage);
+  const cards = images.map((image, i) => `
+      <figure class="${prefix}-pcv-card">
+        <img src="${escapeHtml(image.src)}" alt="${escapeHtml(image.label || `Product visual ${i + 1}`)}" loading="lazy">
+      </figure>`).join('');
+
+  const css = `
+
+  .${prefix}-pcv-section {
+    margin: clamp(36px, 7vw, 76px) auto;
+    padding: clamp(24px, 5vw, 54px);
+    border-radius: 32px;
+    background: ${colors.cream};
+  }
+  .${prefix}-pcv-heading {
+    max-width: 780px;
+    margin: 0 auto 24px;
+    text-align: center;
+  }
+  .${prefix}-pcv-heading h2 {
+    margin: 0 0 10px;
+    color: ${colors.dark};
+    font-size: clamp(30px, 4.5vw, 52px);
+    line-height: 1;
+  }
+  .${prefix}-pcv-heading p {
+    margin: 0;
+    color: ${colors.dark};
+    opacity: .74;
+    font-size: clamp(15px, 1.8vw, 19px);
+  }
+  .${prefix}-pcv-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+    gap: clamp(14px, 2.2vw, 24px);
+    max-width: 1120px;
+    margin: 0 auto;
+  }
+  .${prefix}-pcv-card {
+    margin: 0;
+    border-radius: 24px;
+    overflow: hidden;
+    background: #fff;
+    box-shadow: 0 16px 45px rgba(82, 38, 58, .12);
+  }
+  .${prefix}-pcv-card img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: contain;
+    background: #fff;
+  }
+  @media (max-width: 749px) {
+    .${prefix}-pcv-section {
+      padding: 22px 14px;
+      border-radius: 24px;
+    }
+    .${prefix}-pcv-grid {
+      grid-template-columns: 1fr;
+    }
+  }`;
+
+  const section = `
+  <section class="${prefix}-pcv-section" data-product-card-visuals>
+    <div class="${prefix}-pcv-heading">
+      <h2>${escapeHtml(copy.title)}</h2>
+      <p>${escapeHtml(copy.subtitle)}</p>
+    </div>
+    <div class="${prefix}-pcv-grid">
+${cards}
+    </div>
+  </section>`;
+
+  return { css, section, script: '' };
 }
 
 function injectBeforeAfterSliderFallback(liquid, assets, sourceDesign) {
