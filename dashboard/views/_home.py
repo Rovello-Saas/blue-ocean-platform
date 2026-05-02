@@ -254,12 +254,12 @@ def _render_clone_pipeline(site: str) -> None:
     """
     from src.page_cloner import PageClonerClient
 
-    client = PageClonerClient()
     site_name = "Movanella" if site == "movanella" else "Merivalo"
 
     st.markdown("### Page cloner status")
 
     try:
+        client = PageClonerClient()
         cloner_ready = client.health_check()
     except Exception as exc:
         st.error(f"The built-in page cloner could not start: {exc}")
