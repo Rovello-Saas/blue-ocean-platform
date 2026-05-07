@@ -122,10 +122,42 @@ def _ensure_node_modules(cloner_dir: Path) -> None:
     _INSTALL_DONE = True
 
 
+# Secrets the Node cloner reads via process.env. On Streamlit Cloud these are
+# set through the Secrets panel and surfaced as st.secrets, NOT os.environ —
+# so the Node subprocess can't see them unless we bridge them in here. Without
+# this, the cloner silently falls back to "upload originals, no Nano Banana
+# edits" and you get untranslated, source-branded images.
+_NODE_SECRET_KEYS = (
+    "FAL_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "GOOGLE_GEMINI_API_KEY",
+    "MOVANELLA_SHOPIFY_ACCESS_TOKEN",
+    "MERIVALO_SHOPIFY_ACCESS_TOKEN",
+)
+
+
+def _bridge_streamlit_secrets(env: dict) -> None:
+    """Copy known API keys from st.secrets into the env dict if missing."""
+    try:
+        import streamlit as st
+    except Exception:
+        return
+    for key in _NODE_SECRET_KEYS:
+        if env.get(key):
+            continue
+        try:
+            value = st.secrets.get(key)
+        except Exception:
+            value = None
+        if value:
+            env[key] = str(value)
+
+
 def _runtime_env(base_url: str) -> dict:
     parsed = urlparse(base_url)
     port = str(parsed.port or 3000)
     env = os.environ.copy()
+    _bridge_streamlit_secrets(env)
     env.setdefault("HOST", "127.0.0.1")
     env.setdefault("PORT", port)
     env.setdefault("PLATFORM_API_URL", "http://127.0.0.1:8501")

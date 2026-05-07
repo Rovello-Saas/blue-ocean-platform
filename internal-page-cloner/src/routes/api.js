@@ -149,7 +149,22 @@ function extractImageUrlsFromLiquid(liquidContent) {
 function mergeImageUrlsForProcessing(productImages, liquidContent, maxImages = 28) {
   const urls = [];
   const seen = new Set();
-  const productUrls = (productImages || [])
+
+  // Only "real" product-media-gallery and JSON-LD product images should land
+  // in the Shopify product gallery. Page-images (lifestyle photos, cross-
+  // promo for unrelated products, press logos, expert headshots that live
+  // outside the buy-box) are dropped from the gallery upload — they often
+  // include OTHER products' shots (e.g. Solawave's LED face mask appearing
+  // on the wand PDP). They ARE still available to the AI as section-image
+  // candidates; if the AI actually references one in the generated liquid,
+  // it'll be picked up via extractImageUrlsFromLiquid below and translated.
+  const galleryImages = (productImages || []).filter(img => {
+    if (typeof img === 'string') return true; // legacy path, no role info
+    const role = img?.sourceRole || '';
+    return !role || role === 'product-media-gallery' || role === 'product-structured-data';
+  });
+
+  const productUrls = galleryImages
     .map(img => typeof img === 'string' ? img : img.src)
     .filter(Boolean);
   const liquidUrls = extractImageUrlsFromLiquid(liquidContent);
