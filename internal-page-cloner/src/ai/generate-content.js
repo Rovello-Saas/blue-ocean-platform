@@ -91,6 +91,25 @@ Your output must be a complete file with these parts:
 2. \`<div class="PREFIX-wrap">\` containing all sections in source order
 3. \`<script>\` block for any interactivity (FAQ accordion, before/after slider, carousels)
 
+## DO NOT DUPLICATE THE PRODUCT BUY-BOX
+
+The Shopify Horizon theme renders a PRODUCT HERO above your output. It contains: the product title, price (with compare-at strikethrough), star rating, German bullet description, color/variant picker, "In den Warenkorb" / "Add to cart" button, and the Rapi Bundle "Single / Duo / Trio" widget. That section is fully styled and functional and is NOT something you control.
+
+Therefore:
+- DO NOT emit a hero section that repeats the product title + price + bullets + variant picker + CTA. That produces two product headers stacked on top of each other (one in your CSS prefix, one in Horizon's).
+- DO NOT emit your own bundle picker or "Choose your offer / Single / Duo / Trio" UI — Rapi Bundle handles that natively in the Horizon section.
+- DO NOT emit your own "Add to cart" button at the top of your output. The Horizon section already has one, and yours will look like a second buy-box.
+- Your output begins with the FIRST CONTENT SECTION — typically a trust/proof strip, an "as seen in" press row, or a benefit-grid — NOT another title-and-price hero.
+
+In-body CTAs (e.g. a "compare your price" pricing-card section halfway down the page, like "Movanella wand €169 vs dermatologist treatment €250–€800") MUST be a real Shopify add-to-cart form, not a styled \`<div>\`. Use:
+\`\`\`liquid
+<form action="/cart/add" method="post" enctype="multipart/form-data">
+  <input type="hidden" name="id" value="{{ product.selected_or_first_available_variant.id }}">
+  <button type="submit" class="PREFIX-cta">€{{ product.price | divided_by: 100.0 | money_without_currency }} — In den Warenkorb</button>
+</form>
+\`\`\`
+A pretty pricing card that doesn't actually add to cart is a bug — every "buy" in your output must reach the cart drawer.
+
 ## CRITICAL RULES
 
 - Generate a UNIQUE 2-4 character CSS class prefix from the product name (e.g., \`cap-\` for Cloud Alignment Pillow, \`mls-\` for Motion LED Strip)
@@ -309,6 +328,7 @@ Now generate the complete file for "${productMeta.title}". Remember: unique CSS 
   liquid = applySourcePaletteGuard(liquid, sourceDesign);
   liquid = injectBeforeAfterSliderFallback(liquid, beforeAfterAssets, sourceDesign, targetLanguage);
   liquid = injectProductCardVisualsFallback(liquid, productCardAssets, sourceDesign, targetLanguage);
+  liquid = injectHorizonAtcOverride(liquid, sourceDesign);
 
   // Validate it has the required parts
   if (!liquid.includes('<style>') || !liquid.includes('<div')) {
@@ -585,30 +605,43 @@ function injectBeforeAfterSliderFallback(liquid, assets, sourceDesign, targetLan
 
 // Remove anything that looks like an AI-built before/after / real-results
 // section. The AI can't reliably figure out which "before" matches which
-// "after" image, so its output is often unrelated photos paired together —
-// we'd rather rebuild from the labeled pairs the scraper detected.
+// "after" image, so its output is often unrelated photos paired together
+// (or a static side-by-side card layout with no actual interactivity, which
+// is what we keep seeing on Solawave clones — three composite cards in a
+// row with non-functional "<>" arrows). Either way, we rebuild from the
+// labeled pairs the scraper detected.
 function stripAIBuiltBeforeAfter(liquid) {
   // Match a <section ...>...</section> whose contents look like a before/after
-  // proof section. We're conservative: only sections that contain BOTH the
-  // before/after vocabulary AND an image / results carousel marker get
-  // dropped. Heuristic-based rather than regex-perfect, but the cost of a
-  // false positive is just an extra empty section; the cost of a miss is
-  // visibly broken content.
+  // proof section. We're conservative on vocabulary but generous on layout
+  // markers — the AI keeps inventing new ways to render a static carousel,
+  // so we flag anything that has BOTH before/after wording AND multiple
+  // images OR carousel/grid markup.
   const sectionRe = /<section\b[^>]*>[\s\S]*?<\/section>/gi;
-  const before = liquid;
+  let totalStripped = 0;
   const out = liquid.replace(sectionRe, (block) => {
     const lower = block.toLowerCase();
     const hasBeforeAfterVocab =
-      /before\s*[\/&-]\s*after|before-after|before and after|real\s*results|real\s*skin|day\s*0|day\s*30|vorher|nachher/i.test(lower);
+      /before\s*[\/&-]\s*after|before-after|before and after|real\s*results|real\s*skin|real\s*change|day\s*0|day\s*30|vorher|nachher|voor\s*[\/&-]\s*na|avant\s*[\/&-]\s*apr/i.test(lower);
     if (!hasBeforeAfterVocab) return block;
-    const looksLikeProofSection =
-      /<img\b/i.test(block) &&
-      (/slider|carousel|range|compare|track|slide|results|ba-/i.test(lower));
-    if (!looksLikeProofSection) return block;
+
+    const imgMatches = block.match(/<img\b/gi) || [];
+    const hasMultipleImages = imgMatches.length >= 2;
+    const looksLikeCarousel =
+      /slider|carousel|range|compare|track|slide|results|ba-|grid|swiper|splide|results?-(?:slider|carousel)|testimonial/i.test(lower);
+    // Also catch static side-by-side card layouts that don't use carousel
+    // class names — typically a flex/grid with 3 figure / div children that
+    // each contain an <img> + a "vorher"/"nachher" or "before"/"after" tag.
+    const looksLikeStaticPairCards =
+      hasMultipleImages &&
+      (lower.match(/vorher/g) || []).length + (lower.match(/before/g) || []).length >= 2;
+
+    if (!looksLikeCarousel && !looksLikeStaticPairCards && !hasMultipleImages) return block;
+
+    totalStripped++;
     return ''; // drop it
   });
-  if (out !== before) {
-    console.log('  [AI] Stripped AI-built before/after section so we can rebuild from labeled pairs');
+  if (totalStripped > 0) {
+    console.log(`  [AI] Stripped ${totalStripped} AI-built before/after section(s) so we can rebuild from labeled pairs`);
   }
   return out;
 }
@@ -1466,6 +1499,71 @@ function inferSourceDesign(productMeta, sections, labeledImages) {
       'Do not force the destination store palette if it conflicts with the source page.'
     ].join('\n')
   };
+}
+
+// Inject CSS rules that override the Horizon theme's "Add to cart" button
+// color for this PDP. The Horizon theme paints buttons green by default
+// (Movanella's house palette), but a Solawave-style rose/pink page wants the
+// CTA to match the rest of the page. We do this by:
+//   1. Setting Horizon's CSS custom properties (--color-primary-button etc.)
+//      via a body-scoped :where() rule.
+//   2. Adding broad fallback selectors for theme variants that don't read
+//      the variables.
+// Selectors are intentionally !important so they win over Horizon's stylesheet
+// regardless of cascade order. Only triggers for palette kinds that actually
+// have a non-green accent.
+function injectHorizonAtcOverride(liquid, sourceDesign) {
+  if (sourceDesign.kind !== 'beauty-red-light') return liquid;
+
+  const accent = sourceDesign.accent || '#e66f8f';
+  const dark = sourceDesign.dark || '#52263a';
+  const accentHover = '#d65a7d';
+
+  const overrideCss = `
+/* Horizon ATC button override — match this PDP's accent color instead of the
+   theme's default green. Targets the inline buy-box, the sticky add-to-cart,
+   and the cart drawer CTA. Scoped tightly enough not to leak to other PDPs
+   served by the same theme template. */
+:root,
+body {
+  --color-button: ${accent} !important;
+  --color-button-text: #ffffff !important;
+  --color-primary-button: ${accent} !important;
+  --color-primary-button-text: #ffffff !important;
+  --color-accent: ${accent} !important;
+  --color-foreground-on-button: #ffffff !important;
+}
+.shopify-section .button:not(.button--secondary):not(.button-secondary):not([class*="ghost"]):not([class*="outline"]),
+.shopify-section button[type="submit"][name="add"],
+.shopify-section .product-form__submit,
+.shopify-section .product-form__buttons > button,
+.shopify-section .shopify-payment-button__button--unbranded,
+.shopify-section [data-product-form-submit],
+.sticky-add-to-cart .button,
+.sticky-add-to-cart button[type="submit"],
+.cart-drawer .button:not(.button--secondary),
+.cart-drawer button[type="submit"] {
+  background: ${accent} !important;
+  background-color: ${accent} !important;
+  border-color: ${accent} !important;
+  color: #ffffff !important;
+}
+.shopify-section .button:not(.button--secondary):hover,
+.shopify-section button[type="submit"][name="add"]:hover,
+.sticky-add-to-cart .button:hover {
+  background: ${accentHover} !important;
+  background-color: ${accentHover} !important;
+  border-color: ${accentHover} !important;
+}
+`;
+
+  // Drop the overrides as the FIRST rules inside the existing <style> block so
+  // any subsequent prefixed rules (which use higher specificity) can still
+  // override them where needed.
+  if (liquid.includes('<style>')) {
+    return liquid.replace('<style>', `<style>${overrideCss}`);
+  }
+  return `<style>${overrideCss}</style>\n${liquid}`;
 }
 
 function applySourcePaletteGuard(liquid, sourceDesign) {

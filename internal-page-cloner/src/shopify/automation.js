@@ -396,7 +396,7 @@ function buildHorizonTemplate(liquidContent, options = {}) {
               // Merivalo cloud-alignment-pillow reference. Horizon's default
               // is "dots"; the reference template explicitly sets "thumbnails".
               slideshow_mobile_controls_style: "thumbnails",
-              thumbnail_position: "right",
+              thumbnail_position: "bottom",
               thumbnail_width: 44,
               thumbnail_radius: 0,
               aspect_ratio: "adapt",
