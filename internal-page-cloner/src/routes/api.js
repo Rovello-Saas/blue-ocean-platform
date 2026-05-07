@@ -1003,7 +1003,7 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
           title: productMeta.title,
           description: rawDescription
         },
-        scrapedImageUrls: imageUrls,
+        scrapedImageUrls: allImageUrls,
         uploadedImageUrls: Object.values(urlMap),
         liquidContent,
         urlRewriteCount
@@ -1035,7 +1035,7 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
           price: productMeta.price,
           compareAtPrice: productMeta.compareAtPrice,
           variantCount: variants.length,
-          imageCount: imageUrls.length
+          imageCount: allImageUrls.length
         },
         reviews: reviewResult ? {
           count: reviewResult.reviewCount,
