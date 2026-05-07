@@ -97,10 +97,16 @@ async function callClaude(systemPrompt, userMessage, options = {}) {
 async function callClaudeWithImage(systemPrompt, imageBase64, textMessage, options = {}) {
   const anthropic = getClient();
   const model = options.model || 'claude-sonnet-4-6';
+  const maxTokens = options.maxTokens || 4096;
 
-  const response = await anthropic.messages.create({
+  // Use streaming when max_tokens is high enough that the SDK refuses a
+  // synchronous request (the SDK rejects any non-streaming request whose
+  // worst-case latency could exceed 10 minutes — roughly anything above
+  // ~16k output tokens with vision). finalMessage() resolves to the same
+  // shape as messages.create(), so callers stay unchanged.
+  const requestBody = {
     model,
-    max_tokens: options.maxTokens || 4096,
+    max_tokens: maxTokens,
     system: systemPrompt,
     messages: [{
       role: 'user',
@@ -119,7 +125,15 @@ async function callClaudeWithImage(systemPrompt, imageBase64, textMessage, optio
         }
       ]
     }]
-  });
+  };
+
+  let response;
+  if (maxTokens > 16000) {
+    const stream = anthropic.messages.stream(requestBody);
+    response = await stream.finalMessage();
+  } else {
+    response = await anthropic.messages.create(requestBody);
+  }
 
   _recordClaudeUsage(response, options, model);
   const text = response.content[0]?.text || '';
