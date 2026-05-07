@@ -16,6 +16,9 @@ const {
   setVariantsAndPricing,
   uploadImages,
   buildHorizonTemplate,
+  buildClonedSectionAsset,
+  pushSectionAsset,
+  clonedSectionType,
   pushTemplate,
   publishProduct,
   getStoreConfig
@@ -776,8 +779,16 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
     }
 
     // ── Step 4: Build and push template ──
+    // Push the cloned content as a stand-alone section asset
+    // (sections/cloned-<handle>.liquid, ~256KB cap) instead of inlining it as
+    // a custom_liquid setting (50KB cap). The template just references the
+    // section by type. This is what unblocks Solawave-density clones, which
+    // routinely produce 60-90KB of liquid after the maxTokens bump.
     console.log(`[${jobId}] Step 4: Building and pushing template...`);
-    const templateJson = buildHorizonTemplate(liquidContent);
+    const sectionType = clonedSectionType(handle);
+    const sectionAsset = buildClonedSectionAsset(liquidContent);
+    await pushSectionAsset(sectionType, sectionAsset, storeId);
+    const templateJson = buildHorizonTemplate(liquidContent, { sectionType });
     await pushTemplate(handle, templateJson, storeId);
 
     updateJob(jobId, {

@@ -324,7 +324,59 @@ async function uploadImages(handle, imageUrls, storeId = 'movanella') {
 
 // --- Template (exact copy from push-cloud-alignment-pillow.js buildTemplate) ---
 
-function buildHorizonTemplate(liquidContent) {
+// Sanitise a product handle into a section type. Section files live at
+// sections/<type>.liquid and the type must be lowercase a-z, 0-9, and dashes.
+function clonedSectionType(handle) {
+  const safe = String(handle || 'cloned')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  // Shopify caps section type names at ~50 chars in practice; leave headroom
+  // for the "cloned-" prefix.
+  return ('cloned-' + safe).slice(0, 50);
+}
+
+// Build a stand-alone section asset file for the cloned page. We push this as
+// sections/<type>.liquid (256 KB cap) instead of inlining it as a setting on a
+// custom-liquid section (50 KB cap). The {% schema %} block is required so
+// Shopify recognises the file as a section.
+function buildClonedSectionAsset(liquidContent) {
+  const schema = JSON.stringify({
+    name: 'Cloned content',
+    settings: [],
+    presets: [{ name: 'Cloned content' }]
+  }, null, 2);
+  return `${liquidContent}\n\n{% schema %}\n${schema}\n{% endschema %}\n`;
+}
+
+// Push a section asset (sections/<type>.liquid) to the active theme.
+async function pushSectionAsset(sectionType, assetValue, storeId = 'movanella') {
+  const { themeId } = getStoreConfig(storeId);
+  const assetKey = `sections/${sectionType}.liquid`;
+
+  console.log(`  [Shopify] Pushing section asset: ${assetKey} (${(assetValue.length / 1024).toFixed(1)} KB, theme: ${themeId})`);
+
+  const result = await restApi('PUT', `/themes/${themeId}/assets.json`, {
+    asset: { key: assetKey, value: assetValue }
+  }, storeId);
+
+  if (result.errors) {
+    throw new Error('Section asset push failed: ' + JSON.stringify(result.errors));
+  }
+  console.log(`  [Shopify] Section asset pushed`);
+  return true;
+}
+
+function buildHorizonTemplate(liquidContent, options = {}) {
+  // When a section type is supplied, we reference an external section asset
+  // by type instead of inlining the liquid as a 50KB-capped setting value.
+  // Callers wanting the legacy inline behaviour just omit options.sectionType.
+  const sectionType = options.sectionType || null;
+  const clonedSection = sectionType
+    ? { type: sectionType, settings: {} }
+    : { type: 'custom-liquid', settings: { custom_liquid: liquidContent } };
+
   return {
     sections: {
       main: {
@@ -466,12 +518,7 @@ function buildHorizonTemplate(liquidContent) {
         },
         settings: {}
       },
-      custom_liquid_cloned: {
-        type: "custom-liquid",
-        settings: {
-          custom_liquid: liquidContent
-        }
-      },
+      custom_liquid_cloned: clonedSection,
       loox_reviews: {
         type: "apps",
         blocks: {
@@ -562,6 +609,9 @@ module.exports = {
   setVariantsAndPricing,
   uploadImages,
   buildHorizonTemplate,
+  buildClonedSectionAsset,
+  pushSectionAsset,
+  clonedSectionType,
   pushTemplate,
   publishProduct,
   getStoreConfig,
