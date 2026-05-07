@@ -2,6 +2,51 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
+const http = require('http');
+
+// Download an arbitrary image URL into a Node Buffer. Used as a fallback when
+// Nano Banana translation fails for a content image — we still want the image
+// hosted on Shopify CDN (so the body section doesn't leak a solawave.co URL),
+// even if it ships untranslated.
+function fetchImageBuffer(url, maxBytes = 8 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    let target;
+    try {
+      target = new URL(url);
+    } catch (e) {
+      return reject(new Error(`Invalid image URL: ${url}`));
+    }
+    const client = target.protocol === 'http:' ? http : https;
+    const req = client.get(target, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume();
+        return fetchImageBuffer(res.headers.location, maxBytes).then(resolve, reject);
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error(`HTTP ${res.statusCode} fetching ${url}`));
+      }
+      const chunks = [];
+      let total = 0;
+      res.on('data', (chunk) => {
+        total += chunk.length;
+        if (total > maxBytes) {
+          req.destroy();
+          return reject(new Error(`Image exceeds ${maxBytes} bytes: ${url}`));
+        }
+        chunks.push(chunk);
+      });
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+      res.on('error', reject);
+    });
+    req.on('error', reject);
+    req.setTimeout(15000, () => {
+      req.destroy();
+      reject(new Error(`Timeout fetching ${url}`));
+    });
+  });
+}
 
 const { scrapePage } = require('../scraper/browser');
 const { extractSections, extractProductMeta } = require('../scraper/dom-extractor');
@@ -759,22 +804,34 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
             }
             if (res?.image?.src) urlMap[item.originalUrl] = res.image.src;
             console.log(`  [Shopify] Gallery ${i + 1}/${galleryCount}`);
-          } else if (themeId && item.buffer) {
+          } else if (themeId) {
             // Content: CDN-hosted via theme asset, NOT visible in product card.
-            // Skip when there's no buffer — we can't upload an external URL as
-            // a theme asset attachment, and the residue sweep will leave it as
-            // the original URL (cross-domain, but loads). That's a known
-            // tradeoff vs. polluting the gallery.
+            // Prefer the translated buffer; if Nano Banana failed (no buffer),
+            // fetch the original image and upload it untranslated. Either way
+            // the image ends up on Shopify CDN so the body section doesn't
+            // leak a solawave.co reference. The QA "X references to source
+            // domain remain" warning was driven entirely by skipping this
+            // upload when translation failed.
+            let buffer = item.buffer;
+            if (!buffer) {
+              try {
+                buffer = await fetchImageBuffer(item.originalUrl);
+                console.log(`  [Shopify] Translation missed image ${i + 1}, uploading original buffer instead`);
+              } catch (fetchErr) {
+                console.warn(`  [Shopify] Could not fetch original for ${item.originalUrl}: ${fetchErr.message?.substring(0, 100)}`);
+              }
+            }
+            if (!buffer) continue;
             const ext = guessExt(item.originalUrl);
             const seq = i - galleryCount + 1;
             const assetKey = `assets/cloned-${safeHandle}-${seq}.${ext}`;
             const res = await restApi('PUT', `/themes/${themeId}/assets.json`, {
-              asset: { key: assetKey, attachment: item.buffer.toString('base64') }
+              asset: { key: assetKey, attachment: buffer.toString('base64') }
             }, storeId);
             const newUrl = res?.asset?.public_url || res?.asset?.src || null;
             if (newUrl) {
               urlMap[item.originalUrl] = newUrl;
-              console.log(`  [Shopify] Content ${seq}/${contentUrls.length} → ${assetKey}`);
+              console.log(`  [Shopify] Content ${seq}/${contentUrls.length} → ${assetKey}${item.buffer ? '' : ' (untranslated fallback)'}`);
             } else {
               console.warn(`  [Shopify] Content ${seq} returned no public_url`);
             }

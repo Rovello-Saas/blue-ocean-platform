@@ -114,7 +114,7 @@ Your output must be a complete file with these parts:
     \`<!-- BEFORE_AFTER_SLIDER_PLACEHOLDER -->\`
   on its own line, in the spot where this section should sit (typically between the technology / clinical-results sections and the expert-endorsement section). The post-processor will replace the placeholder with a working drag-to-reveal carousel using the correct pairs and localized labels. Never reference before-after composite images, "DAY 0/DAY 30" photos, or testimonial faces in any other section — they belong only in this slot.
 - DROP-LIST — These source images must NOT appear ANYWHERE in your output. Do not reference them, do not embed them, do not even mention them:
-  • Any U.S. map / "2,100+ U.S. retailers" graphic (filenames like \`map-locations\`, \`us-map\`, \`retailer-map\`). Replace with a TEXT-ONLY localized claim. Nano Banana can edit text on the map but cannot reshape the country outline, so the map graphic ships looking like the U.S. on a German page — drop it.
+  • Any U.S. map / retail-locations graphic (filenames like \`map-locations\`, \`us-map\`, \`retailer-map\`). Skip the entire "we're in 2,100+ retailers" claim — do not include a retail-presence section, do not write a localized text-only equivalent, just drop this concept from the page. The country outline cannot be reshaped by image translation and a German page does not need a U.S.-centric retail brag.
   • Cross-promotional images of OTHER products (Solawave LED face mask, neck/décolleté mask, any device that is not the wand on this page). Filenames containing \`mask\`, \`led-mask\`, \`face-mask\`, \`pro-mask\` are a giveaway.
   • Award badge collages, magazine logo strips, and press-mention covers. Reference brands by name in copy instead.
 
