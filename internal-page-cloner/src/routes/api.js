@@ -146,46 +146,72 @@ function extractImageUrlsFromLiquid(liquidContent) {
   return urls;
 }
 
-function mergeImageUrlsForProcessing(productImages, liquidContent, maxImages = 28) {
-  const urls = [];
+// Split scraped images into two destinations:
+//   * gallery: shows up as Shopify product images (visible in the product
+//     card thumbnails). Only canonical product photos belong here — JSON-LD
+//     `Product.image` entries plus the BUY-BOX product-media carousel.
+//   * content: shows up only inline in body sections via the AI-generated
+//     liquid. Uploaded as theme assets (CDN-hosted, no card pollution).
+//     Includes everything else: comparison charts, expert headshots,
+//     before/after photos, lifestyle shots, press logos, cross-promo for
+//     other products.
+//
+// The split fixes the gallery-pollution we kept seeing on Solawave clones,
+// where the LED face mask, doctor headshots, and before/after photos were
+// landing in the product card.
+function categorizeProductImages(productImages) {
+  const all = (productImages || []).filter(Boolean);
+
+  const gallery = [];
+  const content = [];
   const seen = new Set();
 
-  // Only "real" product-media-gallery and JSON-LD product images should land
-  // in the Shopify product gallery. Page-images (lifestyle photos, cross-
-  // promo for unrelated products, press logos, expert headshots that live
-  // outside the buy-box) are dropped from the gallery upload — they often
-  // include OTHER products' shots (e.g. Solawave's LED face mask appearing
-  // on the wand PDP). They ARE still available to the AI as section-image
-  // candidates; if the AI actually references one in the generated liquid,
-  // it'll be picked up via extractImageUrlsFromLiquid below and translated.
-  const galleryImages = (productImages || []).filter(img => {
-    if (typeof img === 'string') return true; // legacy path, no role info
-    const role = img?.sourceRole || '';
-    return !role || role === 'product-media-gallery' || role === 'product-structured-data';
-  });
+  // First pass: JSON-LD product images are always canonical.
+  for (const img of all) {
+    if (typeof img === 'string') continue;
+    if (img?.sourceRole !== 'product-structured-data') continue;
+    const k = imageDedupeKey(img.src);
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    gallery.push(img);
+  }
 
-  const productUrls = galleryImages
-    .map(img => typeof img === 'string' ? img : img.src)
-    .filter(Boolean);
-  const liquidUrls = extractImageUrlsFromLiquid(liquidContent);
-  const primaryGalleryCount = Math.min(18, maxImages);
+  // Second pass: if JSON-LD only gave us a couple of images, pull in the
+  // top-of-page product-media-gallery shots too (capped) so the gallery is
+  // not painfully bare. Anything past the cap goes to content.
+  const galleryFallbackCap = Math.max(0, 12 - gallery.length);
+  let galleryFallbackUsed = 0;
+  for (const img of all) {
+    if (typeof img === 'string') continue;
+    if (img?.sourceRole !== 'product-media-gallery') continue;
+    const k = imageDedupeKey(img.src);
+    if (!k || seen.has(k)) continue;
+    if (galleryFallbackUsed < galleryFallbackCap) {
+      seen.add(k);
+      gallery.push(img);
+      galleryFallbackUsed++;
+    } else {
+      seen.add(k);
+      content.push(img);
+    }
+  }
 
-  const add = (src) => {
-    const normalized = normalizeImageUrl(src);
-    if (!normalized || !/^https?:\/\//i.test(normalized)) return;
-    const key = imageDedupeKey(normalized);
-    if (seen.has(key)) return;
-    seen.add(key);
-    urls.push(normalized);
-  };
+  // Everything else (page-image, anything unclassified) is content.
+  for (const img of all) {
+    if (typeof img === 'string') {
+      const k = imageDedupeKey(img);
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      content.push({ src: img });
+      continue;
+    }
+    const k = imageDedupeKey(img.src);
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    content.push(img);
+  }
 
-  // Keep the gallery/card images first, but do not let a very long gallery
-  // crowd out section-specific images the generated Liquid actually uses.
-  productUrls.slice(0, primaryGalleryCount).forEach(add);
-  liquidUrls.forEach(add);
-  productUrls.slice(primaryGalleryCount).forEach(add);
-
-  return urls.slice(0, maxImages);
+  return { gallery, content };
 }
 
 function escapeRegExp(value) {
@@ -600,18 +626,46 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
       await setVariantsAndPricing(handle, variants, storeId);
     }
 
-    // Upload images. Product-gallery images go first so the Shopify product
-    // card/gallery keeps the same primary visuals as the source. Then include
-    // any extra image URLs the generated custom sections actually referenced
-    // (comparison charts, before/after graphics, usage infographics, etc.).
-    // This prevents generated sections from leaking untranslated source URLs.
-    const productGalleryImageCount = productMeta.images.length;
-    const liquidImageCount = extractImageUrlsFromLiquid(liquidContent).length;
-    const imageUrls = mergeImageUrlsForProcessing(productMeta.images, liquidContent, 28);
-    console.log(`[${jobId}]   Image processing set: ${imageUrls.length} unique URL(s) (${productGalleryImageCount} gallery, ${liquidImageCount} section reference(s))`);
+    // ── Step 3b: Translate + upload images on TWO paths ──
+    //
+    // Gallery path  → POST /products/{id}/images.json (visible in product card)
+    // Content path  → PUT  /themes/{id}/assets.json   (CDN-hosted, NOT in card)
+    //
+    // Why split: dumping every scraped image into the product gallery polluted
+    // the Shopify card with cross-promo (LED face mask), expert headshots,
+    // before/after photos, and lifestyle shots. Those belong inline in body
+    // sections, not in the carousel thumbnails. categorizeProductImages keeps
+    // only canonical product photos in the gallery — JSON-LD product images
+    // plus a capped fallback of buy-box product-media. Everything else gets
+    // CDN-hosted as a theme asset, the AI references it inline, and the
+    // residue sweep rewrites Solawave URLs to Shopify CDN URLs.
+    const { gallery: galleryImagesObjs, content: contentImagesObjs } =
+      categorizeProductImages(productMeta.images);
 
-    // ── Step 3b: Translate + upload product images ──
-    // Also builds `urlMap` (sourceUrl → Shopify CDN URL) so we can rewrite the
+    // Pull URLs the AI actually referenced in the generated liquid into the
+    // content set as well (some are page-images already in contentImagesObjs,
+    // others may be liquid-only refs the scraper didn't pick up).
+    const liquidUrls = extractImageUrlsFromLiquid(liquidContent);
+    const contentSeen = new Set([
+      ...galleryImagesObjs.map(i => imageDedupeKey(i.src)),
+      ...contentImagesObjs.map(i => imageDedupeKey(i.src)),
+    ]);
+    for (const url2 of liquidUrls) {
+      const norm = normalizeImageUrl(url2);
+      if (!norm || !/^https?:\/\//i.test(norm)) continue;
+      const k = imageDedupeKey(norm);
+      if (!k || contentSeen.has(k)) continue;
+      contentSeen.add(k);
+      contentImagesObjs.push({ src: norm });
+    }
+
+    const galleryUrls = galleryImagesObjs.map(i => i.src).filter(Boolean).slice(0, 15);
+    const contentUrls = contentImagesObjs.map(i => i.src).filter(Boolean).slice(0, 30);
+    const galleryCount = galleryUrls.length;
+    const allImageUrls = [...galleryUrls, ...contentUrls];
+    console.log(`[${jobId}]   Image plan: ${galleryCount} gallery (product card) + ${contentUrls.length} content (theme assets) = ${allImageUrls.length} total`);
+
+    // Build `urlMap` (sourceUrl → Shopify CDN URL) so we can rewrite the
     // AI-generated liquid below, pointing it at the translated images we just
     // uploaded rather than the untranslated source URLs.
     const urlMap = {}; // sourceUrl → newShopifyCdnUrl
@@ -629,7 +683,7 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
       }
     }
 
-    if (imageUrls.length > 0) {
+    if (allImageUrls.length > 0) {
       if (targetLanguage) {
         updateJob(jobId, {
           progress: 55,
@@ -642,27 +696,19 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
         ? `translate → ${LANGUAGE_NAMES[targetLanguage]} + brand → ${brandName}`
         : `brand-only → ${brandName}`;
 
+      // Translate everything in one pass so we batch through Nano Banana once.
+      // Items below `galleryCount` go to product gallery, the rest to theme
+      // assets. translateProductImages returns { originalUrl, buffer? } per
+      // input — when there's no buffer it means translation was skipped/failed
+      // and we fall back to the original URL.
+      let translated;
       if (!falApiKey) {
-        console.warn(`[${jobId}] FAL_API_KEY not found — uploading original images with no edits`);
-        const { restApi } = require('../shopify/automation');
-        const products = await restApi('GET', `/products.json?handle=${handle}`, null, storeId);
-        const productId = products.products?.[0]?.id;
-        if (productId) {
-          for (let i = 0; i < imageUrls.length; i++) {
-            try {
-              const res = await restApi('POST', `/products/${productId}/images.json`, {
-                image: { src: imageUrls[i], position: i + 1 }
-              }, storeId);
-              if (res?.image?.src) urlMap[imageUrls[i]] = res.image.src;
-            } catch (e) {
-              console.warn(`  [Shopify] Image ${i + 1} upload failed: ${e.message?.substring(0, 100)}`);
-            }
-          }
-        }
+        console.warn(`[${jobId}] FAL_API_KEY not found — uploading originals (no Nano Banana edits)`);
+        translated = allImageUrls.map(u => ({ originalUrl: u, buffer: null }));
       } else {
-        console.log(`[${jobId}] Step 3b: Processing ${imageUrls.length} product images (${modeLabel})...`);
-        const translated = await translateProductImages(
-          imageUrls,
+        console.log(`[${jobId}] Step 3b: Processing ${allImageUrls.length} images (${modeLabel})...`);
+        translated = await translateProductImages(
+          allImageUrls,
           mode,
           brandName,
           falApiKey,
@@ -674,34 +720,68 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
           },
           { costTracker }
         );
+      }
 
-        const { restApi } = require('../shopify/automation');
-        const products = await restApi('GET', `/products.json?handle=${handle}`, null, storeId);
-        const productId = products.products?.[0]?.id;
-        if (productId) {
-          for (let i = 0; i < translated.length; i++) {
-            const item = translated[i];
-            try {
-              let res;
-              if (item.buffer) {
-                res = await restApi('POST', `/products/${productId}/images.json`, {
-                  image: {
-                    attachment: item.buffer.toString('base64'),
-                    filename: `image-${i + 1}.jpg`,
-                    position: i + 1
-                  }
-                }, storeId);
-              } else {
-                res = await restApi('POST', `/products/${productId}/images.json`, {
-                  image: { src: item.originalUrl, position: i + 1 }
-                }, storeId);
-              }
-              if (res?.image?.src) urlMap[item.originalUrl] = res.image.src;
-              console.log(`  [Shopify] Uploaded image ${i + 1}/${translated.length}`);
-            } catch (imgErr) {
-              console.warn(`  [Shopify] Image ${i + 1} upload failed: ${imgErr.message?.substring(0, 100)}`);
+      const { restApi } = require('../shopify/automation');
+      const products = await restApi('GET', `/products.json?handle=${handle}`, null, storeId);
+      const productId = products.products?.[0]?.id;
+      const themeId = storeConfigForImgs.themeId;
+
+      const safeHandle = handle.replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').slice(0, 40);
+      const guessExt = (src) => {
+        try {
+          const u = new URL(src);
+          const m = u.pathname.match(/\.([a-z0-9]{2,5})$/i);
+          if (m) return m[1].toLowerCase().replace('jpeg', 'jpg');
+        } catch (e) {}
+        return 'jpg';
+      };
+
+      for (let i = 0; i < translated.length; i++) {
+        const item = translated[i];
+        const isGallery = i < galleryCount;
+        try {
+          if (isGallery && productId) {
+            // Gallery: visible in product card
+            let res;
+            if (item.buffer) {
+              res = await restApi('POST', `/products/${productId}/images.json`, {
+                image: {
+                  attachment: item.buffer.toString('base64'),
+                  filename: `gallery-${i + 1}.jpg`,
+                  position: i + 1
+                }
+              }, storeId);
+            } else {
+              res = await restApi('POST', `/products/${productId}/images.json`, {
+                image: { src: item.originalUrl, position: i + 1 }
+              }, storeId);
+            }
+            if (res?.image?.src) urlMap[item.originalUrl] = res.image.src;
+            console.log(`  [Shopify] Gallery ${i + 1}/${galleryCount}`);
+          } else if (themeId && item.buffer) {
+            // Content: CDN-hosted via theme asset, NOT visible in product card.
+            // Skip when there's no buffer — we can't upload an external URL as
+            // a theme asset attachment, and the residue sweep will leave it as
+            // the original URL (cross-domain, but loads). That's a known
+            // tradeoff vs. polluting the gallery.
+            const ext = guessExt(item.originalUrl);
+            const seq = i - galleryCount + 1;
+            const assetKey = `assets/cloned-${safeHandle}-${seq}.${ext}`;
+            const res = await restApi('PUT', `/themes/${themeId}/assets.json`, {
+              asset: { key: assetKey, attachment: item.buffer.toString('base64') }
+            }, storeId);
+            const newUrl = res?.asset?.public_url || res?.asset?.src || null;
+            if (newUrl) {
+              urlMap[item.originalUrl] = newUrl;
+              console.log(`  [Shopify] Content ${seq}/${contentUrls.length} → ${assetKey}`);
+            } else {
+              console.warn(`  [Shopify] Content ${seq} returned no public_url`);
             }
           }
+        } catch (imgErr) {
+          const where = isGallery ? 'gallery' : 'content';
+          console.warn(`  [Shopify] ${where} image ${i + 1} upload failed: ${imgErr.message?.substring(0, 120)}`);
         }
       }
     }

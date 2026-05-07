@@ -110,11 +110,13 @@ Your output must be a complete file with these parts:
 - Stats percentages should be realistic and may mirror the source page's visible style/range.
 - SVG icons: use Feather-style stroke icons (stroke=source heading color, stroke-width="1.5", fill="none", viewBox="0 0 24 24"). For small decorative accent icons (checkmarks in the trust bar, stars), use source accent color.
 - IMAGE CROPPING — content-card images (use-case cards, feature cards, diagrams, sleep-position illustrations, comparison images, review photos) MUST use \`aspect-ratio: 4/3; object-fit: contain; background: #fff; padding: 8px;\` — NEVER \`height: Npx; object-fit: cover\`. Source images are frequently infographics with labels, icons, arrows, or text baked in; \`cover\` crops that content off. Only the main hero or dark-hero banner — an edge-to-edge lifestyle photo — may use \`object-fit: cover\` (and even then, prefer a large min-height over a fixed pixel height).
-- BEFORE/AFTER RULE — Any image whose label or alt text includes "before-after", "before and after", "Day 0", "Day 30", or "Real Results" must be shown as a single complete image in a before/after proof section. Never crop it, split it, or rebuild it as two separate unrelated images.
-- BEFORE/AFTER SLIDER RULE — Build the before/after proof as an INTERACTIVE drag-to-reveal compare slider, not a static image. Two cases:
-  • Separate before + after photos available → stack them, clip the "before" with \`clip-path: inset(0 calc(100% - var(--position)) 0 0)\`, expose a range input + vertical divider + circular handle + "Before"/"After" tags.
-  • Only composite [BEFORE | AFTER] images available → render each composite as a compare slider where two stacked layers each show one half of the same image via \`background-size: 200% 100%\` with \`background-position: 0% 50%\` (left/before layer) and \`background-position: 100% 50%\` (right/after layer). The before layer's width is controlled by the slider position. This produces a real drag-to-reveal effect on a single composite.
-  • If multiple composites or pairs exist, wrap the compare sliders in a horizontal carousel with prev/next + dots so the user can browse different testimonials. Localize the "Before"/"After" tags to the target language (Vorher/Nachher for German, Voor/Na for Dutch, Avant/Après for French, etc.).
+- BEFORE/AFTER RULE — DO NOT build the before/after / "Real Results" / "Real Skin. Real Change." section yourself. The post-processor builds it deterministically from the labeled image pairs the scraper detected, because you don't reliably know which "before" matches which "after" image. Instead, emit the placeholder marker:
+    \`<!-- BEFORE_AFTER_SLIDER_PLACEHOLDER -->\`
+  on its own line, in the spot where this section should sit (typically between the technology / clinical-results sections and the expert-endorsement section). The post-processor will replace the placeholder with a working drag-to-reveal carousel using the correct pairs and localized labels. Never reference before-after composite images, "DAY 0/DAY 30" photos, or testimonial faces in any other section — they belong only in this slot.
+- DROP-LIST — These source images must NOT appear ANYWHERE in your output. Do not reference them, do not embed them, do not even mention them:
+  • Any U.S. map / "2,100+ U.S. retailers" graphic (filenames like \`map-locations\`, \`us-map\`, \`retailer-map\`). Replace with a TEXT-ONLY localized claim. Nano Banana can edit text on the map but cannot reshape the country outline, so the map graphic ships looking like the U.S. on a German page — drop it.
+  • Cross-promotional images of OTHER products (Solawave LED face mask, neck/décolleté mask, any device that is not the wand on this page). Filenames containing \`mask\`, \`led-mask\`, \`face-mask\`, \`pro-mask\` are a giveaway.
+  • Award badge collages, magazine logo strips, and press-mention covers. Reference brands by name in copy instead.
 
 ## OUTPUT FORMAT
 
@@ -515,9 +517,13 @@ ${cards}
 }
 
 function injectBeforeAfterSliderFallback(liquid, assets, sourceDesign, targetLanguage) {
-  if (hasBeforeAfterInteractiveSection(liquid)) return liquid;
+  // Always strip any AI-built before/after section first — the model frequently
+  // pairs unrelated photos as "before" and "after" because it doesn't know
+  // which images correspond to the same person. We rebuild the section from
+  // the labeled pairs the scraper found.
+  let workingLiquid = stripAIBuiltBeforeAfter(liquid);
 
-  const prefix = inferCssPrefix(liquid);
+  const prefix = inferCssPrefix(workingLiquid);
   const colors = {
     accent: sourceDesign.accent || '#e66f8f',
     dark: sourceDesign.dark || '#52263a',
@@ -525,27 +531,86 @@ function injectBeforeAfterSliderFallback(liquid, assets, sourceDesign, targetLan
     cream: sourceDesign.cream || '#fff7f1'
   };
 
-  if (assets.composite.length) {
-    return injectSectionAndScript(
-      liquid,
-      buildBeforeAfterCarousel(prefix, colors, assets.composite.slice(0, 6), targetLanguage),
-      '  [AI] Injected before/after carousel-of-sliders fallback'
-    );
+  // Pair before[i] with after[i] when we have explicit pairs, plus add any
+  // composite images at the end. Each pair / composite becomes one slide in a
+  // single carousel of compare-sliders.
+  const pairCount = Math.min(assets.before.length, assets.after.length);
+  const pairSlides = [];
+  for (let i = 0; i < pairCount && pairSlides.length < 8; i++) {
+    pairSlides.push({
+      kind: 'pair',
+      before: assets.before[i],
+      after: assets.after[i],
+    });
+  }
+  for (const composite of assets.composite.slice(0, Math.max(0, 8 - pairSlides.length))) {
+    pairSlides.push({ kind: 'composite', composite });
   }
 
-  const before = assets.before[0];
-  const after = assets.after[0];
-  if (!before?.src || !after?.src) return liquid;
+  // Even with no detected pairs we should still drop the placeholder if the AI
+  // emitted one — otherwise it ships as a visible HTML comment.
+  const placeholderRe = /<!--\s*BEFORE_AFTER_SLIDER_PLACEHOLDER\s*-->/gi;
+
+  if (pairSlides.length === 0) {
+    return workingLiquid.replace(placeholderRe, '');
+  }
+
+  const parts = buildBeforeAfterPairCarousel(prefix, colors, pairSlides, targetLanguage);
+
+  // If the AI honored the placeholder, swap it in place. Otherwise inject the
+  // section before the closing wrapper / first script (existing helper logic).
+  if (placeholderRe.test(workingLiquid)) {
+    placeholderRe.lastIndex = 0;
+    let out = workingLiquid.replace(placeholderRe, parts.section);
+    if (out.includes('</style>')) {
+      out = out.replace('</style>', `${parts.css}\n</style>`);
+    } else {
+      out = `${parts.css}\n${out}`;
+    }
+    if (out.includes('</script>')) {
+      out = out.replace('</script>', `${parts.script}\n</script>`);
+    } else {
+      out += `\n<script>${parts.script}\n</script>`;
+    }
+    console.log(`  [AI] Replaced before/after placeholder with carousel (${pairSlides.length} slide(s)${pairCount ? `, ${pairCount} pair(s)` : ''})`);
+    return out;
+  }
 
   return injectSectionAndScript(
-    liquid,
-    buildBeforeAfterCompareSlider(prefix, colors, before, after, targetLanguage),
-    '  [AI] Injected before/after comparison slider fallback'
+    workingLiquid,
+    parts,
+    `  [AI] Injected before/after carousel (${pairSlides.length} slide(s)${pairCount ? `, ${pairCount} pair(s)` : ''})`
   );
 }
 
-function hasBeforeAfterInteractiveSection(liquid) {
-  return /type=["']range["']|before-after-slider|ba-slider|ba-carousel|data-before-after-(?:slider|carousel)|results?-(?:slider|carousel)/i.test(liquid);
+// Remove anything that looks like an AI-built before/after / real-results
+// section. The AI can't reliably figure out which "before" matches which
+// "after" image, so its output is often unrelated photos paired together —
+// we'd rather rebuild from the labeled pairs the scraper detected.
+function stripAIBuiltBeforeAfter(liquid) {
+  // Match a <section ...>...</section> whose contents look like a before/after
+  // proof section. We're conservative: only sections that contain BOTH the
+  // before/after vocabulary AND an image / results carousel marker get
+  // dropped. Heuristic-based rather than regex-perfect, but the cost of a
+  // false positive is just an extra empty section; the cost of a miss is
+  // visibly broken content.
+  const sectionRe = /<section\b[^>]*>[\s\S]*?<\/section>/gi;
+  const before = liquid;
+  const out = liquid.replace(sectionRe, (block) => {
+    const lower = block.toLowerCase();
+    const hasBeforeAfterVocab =
+      /before\s*[\/&-]\s*after|before-after|before and after|real\s*results|real\s*skin|day\s*0|day\s*30|vorher|nachher/i.test(lower);
+    if (!hasBeforeAfterVocab) return block;
+    const looksLikeProofSection =
+      /<img\b/i.test(block) &&
+      (/slider|carousel|range|compare|track|slide|results|ba-/i.test(lower));
+    if (!looksLikeProofSection) return block;
+    return ''; // drop it
+  });
+  if (out !== before) {
+    console.log('  [AI] Stripped AI-built before/after section so we can rebuild from labeled pairs');
+  }
+  return out;
 }
 
 function beforeAfterCopy(targetLanguage) {
@@ -559,6 +624,336 @@ function beforeAfterCopy(targetLanguage) {
   return copy[targetLanguage] || { heading: 'Real results you can see', subhead: 'Drag the handle to compare before and after.', before: 'Before', after: 'After', prev: 'Previous result', next: 'Next result' };
 }
 
+// Build a carousel of compare-sliders. Each slide is either a true pair
+// (separate before + after photos stacked, with clip-path reveal) or a
+// composite (one [BEFORE | AFTER] image split via background-position).
+// The carousel itself uses prev/next + dots, exactly like buildBeforeAfterCarousel.
+function buildBeforeAfterPairCarousel(prefix, colors, slides, targetLanguage) {
+  const copy = beforeAfterCopy(targetLanguage);
+
+  const slideHtml = slides.map((slot, i) => {
+    if (slot.kind === 'pair') {
+      const beforeSrc = escapeHtml(slot.before.src);
+      const afterSrc = escapeHtml(slot.after.src);
+      const beforeAlt = escapeHtml(slot.before.label || copy.before);
+      const afterAlt = escapeHtml(slot.after.label || copy.after);
+      return `
+        <div class="${prefix}-ba-slide" role="group" aria-label="Result ${i + 1} of ${slides.length}">
+          <div class="${prefix}-ba-pair" data-before-after-pair style="--position: 50%;">
+            <img class="${prefix}-ba-after-img" src="${afterSrc}" alt="${afterAlt}" loading="lazy">
+            <img class="${prefix}-ba-before-img" src="${beforeSrc}" alt="${beforeAlt}" loading="lazy">
+            <span class="${prefix}-ba-tag ${prefix}-ba-tag-before">${escapeHtml(copy.before)}</span>
+            <span class="${prefix}-ba-tag ${prefix}-ba-tag-after">${escapeHtml(copy.after)}</span>
+            <span class="${prefix}-ba-divider" aria-hidden="true"></span>
+            <span class="${prefix}-ba-handle" aria-hidden="true">↔</span>
+            <input class="${prefix}-ba-range" type="range" min="0" max="100" value="50" aria-label="${escapeHtml(copy.subhead)}">
+          </div>
+        </div>`;
+    }
+    // composite — split-via-background-position
+    const src = escapeHtml(slot.composite.src);
+    const alt = escapeHtml(slot.composite.label || `Before and after result ${i + 1}`);
+    return `
+        <div class="${prefix}-ba-slide" role="group" aria-label="Result ${i + 1} of ${slides.length}">
+          <div class="${prefix}-ba-compare" data-before-after-compare style="--position: 50%;">
+            <div class="${prefix}-ba-after-layer" style="background-image: url('${src}');" role="img" aria-label="${alt} – ${escapeHtml(copy.after)}"></div>
+            <div class="${prefix}-ba-before-layer" style="background-image: url('${src}');" role="img" aria-label="${alt} – ${escapeHtml(copy.before)}"></div>
+            <span class="${prefix}-ba-tag ${prefix}-ba-tag-before">${escapeHtml(copy.before)}</span>
+            <span class="${prefix}-ba-tag ${prefix}-ba-tag-after">${escapeHtml(copy.after)}</span>
+            <span class="${prefix}-ba-divider" aria-hidden="true"></span>
+            <span class="${prefix}-ba-handle" aria-hidden="true">↔</span>
+            <input class="${prefix}-ba-range" type="range" min="0" max="100" value="50" aria-label="${escapeHtml(copy.subhead)}">
+          </div>
+        </div>`;
+  }).join('');
+
+  const dots = slides.map((_, i) => `
+        <button class="${prefix}-ba-dot" type="button" aria-label="Show result ${i + 1}" aria-current="${i === 0 ? 'true' : 'false'}"></button>`).join('');
+
+  const css = `
+
+  .${prefix}-ba-section {
+    margin: clamp(36px, 7vw, 76px) auto;
+    padding: clamp(24px, 5vw, 56px);
+    border-radius: 32px;
+    background: linear-gradient(135deg, ${colors.cream}, ${colors.soft});
+  }
+  .${prefix}-ba-heading {
+    max-width: 780px;
+    margin: 0 auto 24px;
+    text-align: center;
+  }
+  .${prefix}-ba-heading h2 {
+    margin: 0 0 10px;
+    color: ${colors.dark};
+    font-size: clamp(32px, 5vw, 58px);
+    line-height: 0.98;
+  }
+  .${prefix}-ba-heading p {
+    margin: 0;
+    color: ${colors.dark};
+    opacity: .76;
+    font-size: clamp(16px, 2vw, 20px);
+  }
+  .${prefix}-ba-carousel {
+    max-width: 980px;
+    margin: 0 auto;
+  }
+  .${prefix}-ba-viewport {
+    overflow: hidden;
+    border-radius: 28px;
+    background: #fff;
+    box-shadow: 0 24px 70px rgba(82, 38, 58, .16);
+  }
+  .${prefix}-ba-track {
+    display: flex;
+    transition: transform .36s ease;
+    will-change: transform;
+  }
+  .${prefix}-ba-slide {
+    flex: 0 0 100%;
+    padding: clamp(10px, 2vw, 18px);
+    background: #fff;
+  }
+  /* True before/after pair: two stacked images, "before" clipped by --position. */
+  .${prefix}-ba-pair {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    overflow: hidden;
+    border-radius: 22px;
+    background: #f6eee9;
+    user-select: none;
+    touch-action: none;
+  }
+  .${prefix}-ba-pair img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    background: #fff;
+  }
+  .${prefix}-ba-pair .${prefix}-ba-after-img {
+    position: absolute;
+    inset: 0;
+  }
+  .${prefix}-ba-pair .${prefix}-ba-before-img {
+    position: absolute;
+    inset: 0;
+    clip-path: inset(0 calc(100% - var(--position, 50%)) 0 0);
+  }
+  /* Composite: same image, two halves shown via background-position. */
+  .${prefix}-ba-compare {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    overflow: hidden;
+    border-radius: 22px;
+    background: #f6eee9;
+    user-select: none;
+    touch-action: none;
+  }
+  .${prefix}-ba-after-layer,
+  .${prefix}-ba-before-layer {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background-size: 200% 100%;
+    background-repeat: no-repeat;
+    background-color: #fff;
+  }
+  .${prefix}-ba-after-layer {
+    left: 0;
+    right: 0;
+    background-position: 100% 50%;
+  }
+  .${prefix}-ba-before-layer {
+    left: 0;
+    width: var(--position, 50%);
+    background-position: 0% 50%;
+  }
+  /* Shared overlays: tags, divider, handle, slider input. */
+  .${prefix}-ba-tag {
+    position: absolute;
+    top: 14px;
+    z-index: 3;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .92);
+    color: ${colors.dark};
+    font-weight: 800;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    font-size: 11px;
+    pointer-events: none;
+  }
+  .${prefix}-ba-tag-before { left: 14px; }
+  .${prefix}-ba-tag-after  { right: 14px; }
+  .${prefix}-ba-divider {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: var(--position, 50%);
+    z-index: 4;
+    width: 3px;
+    transform: translateX(-50%);
+    background: #fff;
+    box-shadow: 0 0 0 1px rgba(82, 38, 58, .14);
+    pointer-events: none;
+  }
+  .${prefix}-ba-handle {
+    position: absolute;
+    top: 50%;
+    left: var(--position, 50%);
+    z-index: 5;
+    display: grid;
+    place-items: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 999px;
+    transform: translate(-50%, -50%);
+    background: #fff;
+    color: ${colors.accent};
+    box-shadow: 0 12px 32px rgba(82, 38, 58, .25);
+    font-weight: 800;
+    pointer-events: none;
+    font-size: 18px;
+  }
+  .${prefix}-ba-range {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    appearance: none;
+    background: transparent;
+    opacity: 0;
+    cursor: ew-resize;
+  }
+  .${prefix}-ba-range::-webkit-slider-thumb {
+    appearance: none;
+    width: 60px;
+    height: 100%;
+  }
+  .${prefix}-ba-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 18px;
+  }
+  .${prefix}-ba-button {
+    display: grid;
+    place-items: center;
+    width: 46px;
+    height: 46px;
+    border: 0;
+    border-radius: 999px;
+    background: #fff;
+    color: ${colors.dark};
+    box-shadow: 0 10px 28px rgba(82, 38, 58, .16);
+    cursor: pointer;
+    font-size: 22px;
+    line-height: 1;
+  }
+  .${prefix}-ba-dots {
+    display: flex;
+    gap: 8px;
+  }
+  .${prefix}-ba-dot {
+    width: 9px;
+    height: 9px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: rgba(82, 38, 58, .25);
+    cursor: pointer;
+  }
+  .${prefix}-ba-dot[aria-current="true"] {
+    width: 26px;
+    background: ${colors.accent};
+  }
+  @media (max-width: 749px) {
+    .${prefix}-ba-section {
+      padding: 22px 14px;
+      border-radius: 24px;
+    }
+    .${prefix}-ba-slide {
+      padding: 8px;
+    }
+    .${prefix}-ba-pair,
+    .${prefix}-ba-compare {
+      aspect-ratio: 4 / 3;
+      border-radius: 18px;
+    }
+    .${prefix}-ba-handle {
+      width: 44px;
+      height: 44px;
+    }
+  }`;
+
+  const section = `
+  <section class="${prefix}-ba-section">
+    <div class="${prefix}-ba-heading">
+      <h2>${escapeHtml(copy.heading)}</h2>
+      <p>${escapeHtml(copy.subhead)}</p>
+    </div>
+    <div class="${prefix}-ba-carousel" data-before-after-carousel>
+      <div class="${prefix}-ba-viewport">
+        <div class="${prefix}-ba-track">
+${slideHtml}
+        </div>
+      </div>
+      <div class="${prefix}-ba-controls" aria-label="${escapeHtml(copy.heading)}">
+        <button class="${prefix}-ba-button ${prefix}-ba-prev" type="button" aria-label="${escapeHtml(copy.prev)}">‹</button>
+        <div class="${prefix}-ba-dots">
+${dots}
+        </div>
+        <button class="${prefix}-ba-button ${prefix}-ba-next" type="button" aria-label="${escapeHtml(copy.next)}">›</button>
+      </div>
+    </div>
+  </section>`;
+
+  const script = `
+  document.querySelectorAll('.${prefix}-ba-pair, .${prefix}-ba-compare').forEach(function(el) {
+    var range = el.querySelector('.${prefix}-ba-range');
+    if (!range) return;
+    var update = function() {
+      el.style.setProperty('--position', range.value + '%');
+    };
+    range.addEventListener('input', update);
+    range.addEventListener('change', update);
+    update();
+  });
+  document.querySelectorAll('.${prefix}-ba-carousel').forEach(function(carousel) {
+    var track = carousel.querySelector('.${prefix}-ba-track');
+    var slides = Array.prototype.slice.call(carousel.querySelectorAll('.${prefix}-ba-slide'));
+    var dots = Array.prototype.slice.call(carousel.querySelectorAll('.${prefix}-ba-dot'));
+    var prev = carousel.querySelector('.${prefix}-ba-prev');
+    var next = carousel.querySelector('.${prefix}-ba-next');
+    var index = 0;
+    if (!track || slides.length < 2) return;
+    var show = function(nextIndex) {
+      index = (nextIndex + slides.length) % slides.length;
+      track.style.transform = 'translateX(' + (-index * 100) + '%)';
+      dots.forEach(function(dot, dotIndex) {
+        dot.setAttribute('aria-current', dotIndex === index ? 'true' : 'false');
+      });
+    };
+    if (prev) prev.addEventListener('click', function() { show(index - 1); });
+    if (next) next.addEventListener('click', function() { show(index + 1); });
+    dots.forEach(function(dot, dotIndex) {
+      dot.addEventListener('click', function() { show(dotIndex); });
+    });
+    show(0);
+  });`;
+
+  return { css, section, script };
+}
+
+// Legacy helper kept for back-compat. Delegates to the unified pair carousel
+// so all callers produce the same interactive widget.
 function buildBeforeAfterCarousel(prefix, colors, images, targetLanguage) {
   const copy = beforeAfterCopy(targetLanguage);
 
