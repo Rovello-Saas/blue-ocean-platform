@@ -43,6 +43,38 @@ function saturationScore(r, g, b) {
   return (max - min) / (max + min);
 }
 
+// Hue in degrees, 0–360. Red = 0, green = 120, blue = 240.
+// We use this to filter out JPEG-compression noise: e.g. on a pink-dominated
+// page, every legitimate accent has hue ≈ 350° (pink/red), and a teal noise
+// cluster at hue ≈ 175° gets rejected even if its saturation looks high.
+function hueDegrees(r, g, b) {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  if (delta === 0) return 0;
+  let h;
+  if (max === r) h = ((g - b) / delta) % 6;
+  else if (max === g) h = (b - r) / delta + 2;
+  else h = (r - g) / delta + 4;
+  h *= 60;
+  if (h < 0) h += 360;
+  return h;
+}
+
+// Smallest signed angle between two hues, in degrees (0–180).
+function hueDistance(a, b) {
+  const d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+}
+
+// Median value of an array (numeric).
+function medianOf(arr) {
+  if (!arr.length) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const m = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[m] : (sorted[m - 1] + sorted[m]) / 2;
+}
+
 async function extractPalette(screenshotPath) {
   let raw;
   try {
@@ -96,46 +128,89 @@ async function extractPalette(screenshotPath) {
       b: blue,
       count: b.count,
       sum: r + g + blue,
-      saturation: saturationScore(r, g, blue)
+      saturation: saturationScore(r, g, blue),
+      hue: hueDegrees(r, g, blue)
     };
   });
+  const totalCount = items.reduce((acc, it) => acc + it.count, 0);
 
   // Surface = the dominant LOW-saturation bucket (cream, beige, soft grey,
-  // tinted-white). We exclude high-saturation buckets here so a small but
-  // bright accent button doesn't get labeled as the page surface.
+  // tinted-white). Exclude high-saturation buckets so a small bright accent
+  // doesn't get labeled as the page surface.
   const lowSatItems = items.filter(it => it.saturation < 0.20);
   const byCountLowSat = [...lowSatItems].sort((a, b) => b.count - a.count);
   const surface = byCountLowSat[0] || items.sort((a, b) => b.count - a.count)[0];
-  // Background = second most-dominant low-saturation bucket (the "soft"
-  // panel zone behind cards). Falls back to surface if none.
   const background = byCountLowSat[1] || surface;
 
-  // Accent = most-saturated mid-bright bucket. Brightness window 220–600 keeps
-  // it visible (not muddy, not washed out). Saturation > 0.15 to filter grays.
-  const accentCandidates = items.filter(it =>
-    it.sum >= 220 && it.sum <= 600 && it.saturation >= 0.15
-  );
-  const accent = accentCandidates.length
-    ? accentCandidates.sort((a, b) => b.saturation * Math.log10(b.count + 1) - a.saturation * Math.log10(a.count + 1))[0]
-    : byCount[2] || surface;
+  // Compute the dominant hue family from chromatic pixels. Count-weighted
+  // circular mean on the unit circle — small JPEG-noise clusters can't drag
+  // the average away from the page's real palette because real palette
+  // hues appear in many places (eyebrow + ATC + badges + body accents) and
+  // their counts add up. This is the key fix for the "Solawave clone
+  // shipped teal" bug.
+  const chromaticItems = items.filter(it => it.saturation >= 0.18);
+  let cx = 0, cy = 0;
+  for (const it of chromaticItems) {
+    const rad = (it.hue * Math.PI) / 180;
+    cx += Math.cos(rad) * it.count;
+    cy += Math.sin(rad) * it.count;
+  }
+  const dominantHue = chromaticItems.length
+    ? ((Math.atan2(cy, cx) * 180) / Math.PI + 360) % 360
+    : null;
 
-  // Accent dark = most-saturated darker bucket (for hover/text/buttons-darker)
+  // Accent = saturated mid-bright bucket whose hue is in the dominant hue
+  // family. We DELIBERATELY do NOT require a count threshold here — UI
+  // elements like ATC buttons are tiny relative to the page (often well
+  // under 0.1% of pixels) but are exactly the colors we want. The hue gate
+  // filters out noise: a teal compression patch on a pink page won't pass
+  // even at high saturation because its hue is 175° from a 350° page.
+  let accentCandidates = items.filter(it =>
+    it.sum >= 200 && it.sum <= 560 &&
+    it.saturation >= 0.30 &&
+    (dominantHue === null || hueDistance(it.hue, dominantHue) <= 30)
+  );
+  if (!accentCandidates.length) {
+    // Soft-pastel page: relax saturation, widen hue gate
+    accentCandidates = items.filter(it =>
+      it.sum >= 200 && it.sum <= 600 &&
+      it.saturation >= 0.18 &&
+      (dominantHue === null || hueDistance(it.hue, dominantHue) <= 45)
+    );
+  }
+  // Score: saturation primary, count secondary. sqrt(count) keeps small
+  // saturated UI elements competitive with large soft-saturated areas.
+  const accent = accentCandidates.length
+    ? accentCandidates.sort((a, b) =>
+        (b.saturation * 2 + Math.sqrt(b.count) * 0.05) -
+        (a.saturation * 2 + Math.sqrt(a.count) * 0.05)
+      )[0]
+    : byCountLowSat[2] || surface;
+
+  // Accent dark = darker shade in the same hue family (for hover/buttons-dark)
   const darkCandidates = items.filter(it =>
-    it.sum < 380 && it.saturation >= 0.12
+    it.sum < 380 &&
+    it.saturation >= 0.20 &&
+    hueDistance(it.hue, accent.hue) <= 45
   );
   const accentDark = darkCandidates.length
-    ? darkCandidates.sort((a, b) => b.saturation - a.saturation)[0]
+    ? darkCandidates.sort((a, b) => a.sum - b.sum)[0]
     : darken(accent);
 
-  // Text primary = darkest bucket overall (page body text color)
-  const textPrimary = [...items].sort((a, b) => a.sum - b.sum)[0];
+  // Text primary = darkest substantial bucket (page body text color).
+  // Require some count so we don't pick a single shadow noise pixel.
+  const textMinCount = Math.max(20, Math.round(totalCount * 0.001));
+  const textPrimary = [...items]
+    .filter(it => it.count >= textMinCount)
+    .sort((a, b) => a.sum - b.sum)[0] || items.sort((a, b) => a.sum - b.sum)[0];
 
   return {
     accent: rgbToHex(accent.r, accent.g, accent.b),
     accentDark: rgbToHex(accentDark.r, accentDark.g, accentDark.b),
     background: rgbToHex(background.r, background.g, background.b),
     surface: rgbToHex(surface.r, surface.g, surface.b),
-    textPrimary: rgbToHex(textPrimary.r, textPrimary.g, textPrimary.b)
+    textPrimary: rgbToHex(textPrimary.r, textPrimary.g, textPrimary.b),
+    dominantHue
   };
 }
 
