@@ -96,11 +96,64 @@ def _run_setup_command(
         ) from exc
 
 
+def _safe_remove_tree(path: Path) -> None:
+    """Best-effort recursive removal that tolerates Streamlit overlay quirks."""
+    if not path.exists():
+        return
+    try:
+        shutil.rmtree(path)
+        return
+    except OSError:
+        pass
+
+    subprocess.run(["find", str(path), "-mindepth", "1", "-delete"], check=False)
+    try:
+        path.rmdir()
+    except OSError:
+        pass
+
+
+def _move_aside_node_modules(node_modules: Path) -> None:
+    """
+    Remove node_modules without asking npm ci to clean it.
+
+    On Streamlit Cloud an interrupted install can leave directories that fail
+    npm's internal cleanup with ENOTEMPTY. Renaming the old tree first gives
+    npm a clean destination even if deleting the old tree is slow or flaky.
+    """
+    if not node_modules.exists():
+        return
+
+    trash = node_modules.with_name(f".node_modules-trash-{int(time.time())}")
+    try:
+        node_modules.rename(trash)
+        _safe_remove_tree(trash)
+        return
+    except OSError:
+        _safe_remove_tree(node_modules)
+
+
+def _marker_is_current(install_marker: Path, node_modules: Path, lockfile: Path) -> bool:
+    if not install_marker.exists() or not node_modules.exists():
+        return False
+    try:
+        marker = install_marker.read_text().strip()
+    except OSError:
+        return False
+    if not marker:
+        return False
+    try:
+        return float(marker) >= lockfile.stat().st_mtime
+    except (OSError, ValueError):
+        return False
+
+
 def _ensure_node_modules(cloner_dir: Path) -> None:
     global _INSTALL_DONE
     install_marker = cloner_dir / ".install-complete"
     node_modules = cloner_dir / "node_modules"
-    if _INSTALL_DONE or (install_marker.exists() and node_modules.exists()):
+    lockfile = cloner_dir / "package-lock.json"
+    if _INSTALL_DONE or _marker_is_current(install_marker, node_modules, lockfile):
         _INSTALL_DONE = True
         return
 
@@ -113,35 +166,37 @@ def _ensure_node_modules(cloner_dir: Path) -> None:
     # in puppeteer-core/lib/esm/puppeteer/bidi). shutil.rmtree + find -delete
     # are more reliable than letting npm clean itself up, so we always start
     # from a known-clean state.
-    if node_modules.exists():
-        try:
-            shutil.rmtree(node_modules)
-        except OSError:
-            # rmtree can fail on overlay FS too; fall back to find -delete
-            # which tolerates non-empty subdirs by deleting bottom-up.
-            subprocess.run(
-                ["find", str(node_modules), "-mindepth", "1", "-delete"],
-                check=False,
-            )
-            try:
-                node_modules.rmdir()
-            except OSError:
-                # If the dir itself can't be removed, npm ci will recreate
-                # it — proceeding gives npm a chance to succeed anyway.
-                pass
+    _move_aside_node_modules(node_modules)
 
     install_env = os.environ.copy()
     install_env.setdefault("npm_config_cache", str(PROJECT_ROOT / ".cache" / "npm"))
     install_env.setdefault("PUPPETEER_SKIP_DOWNLOAD", "true")
 
-    _run_setup_command(
-        ["npm", "ci", "--omit=dev", "--no-audit", "--no-fund"],
-        cwd=cloner_dir,
-        env=install_env,
-        timeout=900,
-        failure_message="The built-in page cloner could not install Node dependencies.",
-    )
-    install_marker.write_text("ok\n")
+    command = ["npm", "ci", "--omit=dev", "--no-audit", "--no-fund"]
+    try:
+        _run_setup_command(
+            command,
+            cwd=cloner_dir,
+            env=install_env,
+            timeout=900,
+            failure_message="The built-in page cloner could not install Node dependencies.",
+        )
+    except RuntimeError as exc:
+        # npm can still fail with ENOTEMPTY when it races an old partial tree.
+        # Clean once more and retry from a known-empty destination before
+        # surfacing the error to Streamlit.
+        if "ENOTEMPTY" not in str(exc) and "directory not empty" not in str(exc).lower():
+            raise
+        _move_aside_node_modules(node_modules)
+        _run_setup_command(
+            command,
+            cwd=cloner_dir,
+            env=install_env,
+            timeout=900,
+            failure_message="The built-in page cloner could not install Node dependencies after cleaning the previous install.",
+        )
+
+    install_marker.write_text(f"{lockfile.stat().st_mtime}\n")
     _INSTALL_DONE = True
 
 

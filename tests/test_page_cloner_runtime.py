@@ -42,8 +42,10 @@ def test_running_local_cloner_is_reused_before_setup(monkeypatch, tmp_path):
 
 def test_stale_install_marker_does_not_skip_dependency_install(monkeypatch, tmp_path):
     (tmp_path / ".install-complete").write_text("ok\n")
+    (tmp_path / "package-lock.json").write_text("{}\n")
     monkeypatch.setattr(runtime, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(runtime.shutil, "which", lambda binary: f"/usr/bin/{binary}")
+    monkeypatch.setattr(runtime, "_move_aside_node_modules", lambda path: None)
 
     commands = []
 
@@ -57,7 +59,35 @@ def test_stale_install_marker_does_not_skip_dependency_install(monkeypatch, tmp_
     assert commands
     assert commands[0][0] == ["npm", "ci", "--omit=dev", "--no-audit", "--no-fund"]
     assert commands[0][1] == tmp_path
-    assert (tmp_path / ".install-complete").read_text() == "ok\n"
+    assert float((tmp_path / ".install-complete").read_text()) >= 0
+
+
+def test_enotempty_install_error_cleans_and_retries(monkeypatch, tmp_path):
+    (tmp_path / "package-lock.json").write_text("{}\n")
+    monkeypatch.setattr(runtime, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(runtime.shutil, "which", lambda binary: f"/usr/bin/{binary}")
+
+    cleanups = []
+    monkeypatch.setattr(
+        runtime,
+        "_move_aside_node_modules",
+        lambda path: cleanups.append(path.name),
+    )
+
+    commands = []
+
+    def fake_run_setup_command(command, *, cwd, env, timeout, failure_message):
+        commands.append(command)
+        if len(commands) == 1:
+            raise RuntimeError("npm ERR! code ENOTEMPTY")
+
+    monkeypatch.setattr(runtime, "_run_setup_command", fake_run_setup_command)
+
+    runtime._ensure_node_modules(tmp_path)
+
+    assert len(commands) == 2
+    assert cleanups == ["node_modules", "node_modules"]
+    assert (tmp_path / ".install-complete").exists()
 
 
 def test_stale_chrome_marker_does_not_skip_browser_install(monkeypatch, tmp_path):
