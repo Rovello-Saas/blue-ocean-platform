@@ -544,10 +544,16 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
         droppedFromOutput.push({ src: img.src, purpose: p.purpose });
         return false;
       }
+      // Tag the survivor with its purpose so categorizeProductImages's
+      // purpose-based gallery pass can use it. Without this, every image
+      // had img.purpose === undefined, the gallery pass matched nothing,
+      // and only JSON-LD images reached the Shopify product card — which
+      // is why the cloned PDP was shipping with 1 thumbnail.
+      if (p) img.purpose = p.purpose;
       return true;
     });
     // Also strip logo-strip images from each section's image list so the AI's
-    // SOURCE SECTION BLUEPRINT doesn't surface them either. Tag survivors
+    // SOURCE SECTION BLUEPRINT doesn't surface them either, and tag survivors
     // with purpose so downstream consumers can read it without re-classifying.
     for (const section of sections) {
       const filtered = [];
