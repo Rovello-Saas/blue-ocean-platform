@@ -16,7 +16,7 @@ const POLICIES = {
     skip: false,
     dropFromOutput: false,
     faceSwap: false,
-    extraInstruction: ''
+    extraInstruction: 'Keep this as a product-media/gallery asset. Do not add new text blocks, comparison tables, badges, people, or extra product props that are not already present.'
   },
   'lifestyle-with-person': {
     skip: false,
@@ -40,14 +40,13 @@ const POLICIES = {
     skip: false,
     dropFromOutput: false,
     faceSwap: false,
-    extraInstruction: ''
+    extraInstruction: 'This is a clean product-only/catalog image. Keep it product-only. Remove source-brand marks or device logos, but do not add people, text, callouts, comparison charts, badges, or extra objects.'
   },
   'before-after': {
-    skip: true,
+    skip: false,
     dropFromOutput: false,
-    faceSwap: false,
-    extraInstruction: '',
-    skipReason: 'handled by deterministic before-after post-processor'
+    faceSwap: true,
+    extraInstruction: 'This is a before/after or results image. Preserve the before/after composition and crop, but replace visible identities with new AI-safe people, remove source branding, and reframe any visible text for the target brand. Do not upload or reference the original source image.'
   },
   'logo-strip': {
     skip: true,

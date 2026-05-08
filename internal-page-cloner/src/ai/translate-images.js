@@ -468,9 +468,15 @@ async function translateProductImages(imageUrls, targetLanguage, brandName, falA
 
     try {
       console.log(`  [translate] Image ${i + 1}/${imageUrls.length}${policy.faceSwap ? ' [+face-swap]' : ''}: ${url.substring(0, 80)}...`);
-      const runPrimaryEdit = (addition) => {
+      const runPrimaryEdit = async (addition) => {
         if (falApiKey) {
-          return translateImageWithFal(url, targetLanguage, brandName, falApiKey, 2, addition, costTracker, perImageOpts);
+          try {
+            return await translateImageWithFal(url, targetLanguage, brandName, falApiKey, 2, addition, costTracker, perImageOpts);
+          } catch (falErr) {
+            if (!googleApiKey) throw falErr;
+            console.warn(`  [translate] fal.ai edit failed (${falErr.message?.substring(0, 100)}) — trying Gemini Nano Banana Pro`);
+            return translateImageWithGeminiNano(url, targetLanguage, brandName, googleApiKey, 2, addition, costTracker, perImageOpts);
+          }
         }
         return translateImageWithGeminiNano(url, targetLanguage, brandName, googleApiKey, 2, addition, costTracker, perImageOpts);
       };

@@ -292,7 +292,7 @@ async function extractSections(page) {
  * Uses JSON-LD structured data as primary source, falls back to DOM
  */
 async function extractProductMeta(page) {
-  return await page.evaluate(() => {
+  return await page.evaluate(async () => {
     const meta = {
       title: '',
       price: '',
@@ -413,6 +413,68 @@ async function extractProductMeta(page) {
       if (productsIdx >= 0 && pathParts[productsIdx + 1]) {
         meta.handle = pathParts[productsIdx + 1];
       }
+    }
+
+    function absolutizeImageUrl(src) {
+      if (!src) return '';
+      try {
+        if (src.startsWith('//')) return window.location.protocol + src;
+        return new URL(src, window.location.href).href;
+      } catch (e) {
+        return src;
+      }
+    }
+
+    function addProductImage(src, extra = {}) {
+      const absolute = absolutizeImageUrl(src);
+      if (!absolute) return;
+      const base = absolute.split('?')[0];
+      if (meta.images.some(img => (img.src || '').split('?')[0] === base)) return;
+      meta.images.push({
+        src: absolute,
+        alt: extra.alt || '',
+        position: meta.images.length + 1,
+        sourceRole: extra.sourceRole || 'product-media-gallery',
+        naturalWidth: extra.naturalWidth || 0,
+        naturalHeight: extra.naturalHeight || 0
+      });
+    }
+
+    // Shopify product pages expose the exact buy-box/media-carousel images at
+    // /products/<handle>.js. Prefer this over brittle DOM visibility checks:
+    // many source themes lazy-load thumbnails, hide carousel slides offscreen,
+    // or use non-standard class names, which previously reduced Solawave-like
+    // clones to a single gallery image.
+    if (meta.handle) {
+      try {
+        const res = await fetch(`${window.location.origin}/products/${meta.handle}.js`, {
+          credentials: 'same-origin',
+          cache: 'no-store'
+        });
+        if (res.ok) {
+          const productJson = await res.json();
+          const media = Array.isArray(productJson.media) ? productJson.media : [];
+          const images = Array.isArray(productJson.images) ? productJson.images : [];
+
+          media.forEach((m) => {
+            const src = m?.src || m?.preview_image?.src || m?.image?.src;
+            if (!src) return;
+            addProductImage(src, {
+              alt: m.alt || productJson.title || '',
+              sourceRole: 'product-media-gallery',
+              naturalWidth: m.width || m.preview_image?.width || 0,
+              naturalHeight: m.height || m.preview_image?.height || 0
+            });
+          });
+
+          images.forEach((src) => {
+            addProductImage(src, {
+              alt: productJson.title || '',
+              sourceRole: 'product-media-gallery'
+            });
+          });
+        }
+      } catch (e) {}
     }
 
     // Always scrape product images from DOM

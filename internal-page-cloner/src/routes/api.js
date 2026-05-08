@@ -793,23 +793,39 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
 
     // Pull URLs the AI actually referenced in the generated liquid into the
     // content set as well (some are page-images already in contentImagesObjs,
-    // others may be liquid-only refs the scraper didn't pick up).
+    // others may be liquid-only refs the scraper didn't pick up). These get
+    // FIRST priority because any one of them can leak the source domain/brand
+    // directly into the published page.
     const liquidUrls = extractImageUrlsFromLiquid(liquidContent);
-    const contentSeen = new Set([
-      ...galleryImagesObjs.map(i => imageDedupeKey(i.src)),
-      ...contentImagesObjs.map(i => imageDedupeKey(i.src)),
-    ]);
+    const gallerySeen = new Set(galleryImagesObjs.map(i => imageDedupeKey(i.src)).filter(Boolean));
+    const contentSeen = new Set(gallerySeen);
+    const liquidContentImagesObjs = [];
     for (const url2 of liquidUrls) {
       const norm = normalizeImageUrl(url2);
       if (!norm || !/^https?:\/\//i.test(norm)) continue;
       const k = imageDedupeKey(norm);
       if (!k || contentSeen.has(k)) continue;
       contentSeen.add(k);
-      contentImagesObjs.push({ src: norm });
+      liquidContentImagesObjs.push({ src: norm, sourceRole: 'liquid-referenced-image' });
+    }
+
+    const remainingContentImagesObjs = [];
+    for (const img of contentImagesObjs) {
+      const k = imageDedupeKey(img?.src);
+      if (!k || contentSeen.has(k)) continue;
+      contentSeen.add(k);
+      remainingContentImagesObjs.push(img);
     }
 
     const galleryUrls = galleryImagesObjs.map(i => i.src).filter(Boolean).slice(0, 15);
-    const contentUrls = contentImagesObjs.map(i => i.src).filter(Boolean).slice(0, 30);
+    const CONTENT_IMAGE_CAP = 60;
+    const prioritizedContentUrls = [
+      ...liquidContentImagesObjs.map(i => i.src).filter(Boolean),
+      ...remainingContentImagesObjs.map(i => i.src).filter(Boolean)
+    ];
+    // Never cap out URLs that are already present in the Liquid. The cap only
+    // trims opportunistic extra content images that are not referenced.
+    const contentUrls = prioritizedContentUrls.slice(0, Math.max(CONTENT_IMAGE_CAP, liquidContentImagesObjs.length));
     const galleryCount = galleryUrls.length;
     const allImageUrls = [...galleryUrls, ...contentUrls];
     console.log(`[${jobId}]   Image plan: ${galleryCount} gallery (product card) + ${contentUrls.length} content (theme assets) = ${allImageUrls.length} total`);
