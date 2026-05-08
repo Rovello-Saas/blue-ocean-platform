@@ -23,8 +23,8 @@
  *
  * Pricing constants kept in sync with the Python tracker:
  *  - Anthropic Claude Sonnet 4.5: $3 / $15 per Mtok
- *  - fal.ai nano-banana-2:         $0.04 / image
- *  - fal.ai nano-banana-pro:       $0.04 / image (same pricing tier)
+ *  - fal.ai GPT Image 2 edit:      ~$0.20 / high-quality image (estimated)
+ *  - fal.ai nano-banana-pro:       $0.04 / image fallback
  */
 
 const fs = require('fs');
@@ -37,6 +37,7 @@ const crypto = require('crypto');
 const CLAUDE_SONNET_INPUT_PER_MTOK = 3.00;
 const CLAUDE_SONNET_OUTPUT_PER_MTOK = 15.00;
 const FAL_NANOBANANA_PER_IMAGE = 0.04;
+const FAL_GPT_IMAGE_2_HIGH_PER_IMAGE = 0.20;
 
 const PROVIDER_ANTHROPIC = 'anthropic';
 const PROVIDER_FAL = 'fal';
@@ -198,4 +199,5 @@ module.exports = {
   CLAUDE_SONNET_INPUT_PER_MTOK,
   CLAUDE_SONNET_OUTPUT_PER_MTOK,
   FAL_NANOBANANA_PER_IMAGE,
+  FAL_GPT_IMAGE_2_HIGH_PER_IMAGE,
 };

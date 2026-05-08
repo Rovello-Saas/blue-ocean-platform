@@ -24,13 +24,19 @@ const LANGUAGE_NAMES = {
 // and en-UK is mixed; the EU languages below are always metric.
 const METRIC_LANGUAGES = new Set(['de', 'fr', 'es', 'it', 'nl']);
 
-function buildTranslatePrompt(targetLanguage, brandName) {
+function buildTranslatePrompt(targetLanguage, brandName, opts = {}) {
   const isBrandOnly = targetLanguage === 'same';
   const langName = isBrandOnly ? null : (LANGUAGE_NAMES[targetLanguage] || targetLanguage);
   const needsMetric = !isBrandOnly && METRIC_LANGUAGES.has(targetLanguage);
+  const ipSafeRewrite = opts.ipSafeRewrite !== false; // default ON for cloner safety
+  const allowIdentitySwap = !!opts.allowIdentitySwap;
 
   // --- Translation block ---
-  const translateSection = isBrandOnly ? '' : `TRANSLATE every piece of visible text to ${langName}. This includes headlines, taglines, feature callouts (e.g. "Machine Washable", "Cloud-Soft Feel"), badges, buttons, overlays, size/dimension labels, legal text, and any other readable words. Every word must be in ${langName} — no exceptions, no mixing languages.
+  const translateSection = isBrandOnly
+    ? `REFRAME visible marketing text. Keep the same general meaning and product benefit, but rewrite headlines, taglines, callouts, badges, and overlays into new Movanella wording rather than copying the source text verbatim. Keep roughly the same length so the layout still fits. Do not preserve source slogans or proprietary phrasing.
+
+`
+    : `TRANSLATE and REFRAME every piece of visible text to ${langName}. This includes headlines, taglines, feature callouts (e.g. "Machine Washable", "Cloud-Soft Feel"), badges, buttons, overlays, size/dimension labels, legal text, and any other readable words. Every word must be in ${langName} — no exceptions, no mixing languages. Keep the same general meaning and product benefit, but do not copy source slogans or phrasing literally; use new Movanella wording that fits the same layout.
 
 `;
 
@@ -94,10 +100,24 @@ function buildTranslatePrompt(targetLanguage, brandName) {
   }
 
   // --- Final assembly ---
+  const ipSafeSection = ipSafeRewrite ? `IP-SAFE REWRITE MODE:
+- Remove or replace every source-brand mark, including Solawave wordmarks, product labels, watermarks, logo text, packaging text, and tiny device markings. The only allowed brand is "${brandName || 'the target brand'}".
+- Reframe visible marketing copy so it communicates the same idea without being a verbatim copy of the source image text.
+- If a visible person appears, replace their identity with a new AI-safe person while preserving pose, angle, lighting, expression, wardrobe category, and composition. The output must not look like the original identifiable model/customer.
+- Keep the product, layout, callout positions, chart/grid structure, before/after framing, colors, and cropping close enough that the section still fits the page, but avoid a literal branded asset copy.
+
+` : '';
+
+  const identityLine = allowIdentitySwap
+    ? '- Visible people MAY be changed only for identity replacement. Preserve pose, framing, lighting, expression, wardrobe category, body proportions, and overall composition.'
+    : '- If a visible person appears and no reference face is supplied, create a new AI-safe person while preserving pose, framing, lighting, expression, wardrobe category, body proportions, and overall composition.';
+
   const header = `You are editing a product marketing image. Make EXACTLY the changes listed below — nothing else.
 
 FIDELITY FIRST — read this before anything else:
-You are NOT designing a new image. You are performing a MINIMAL text-only edit on an existing marketing image. The output must be indistinguishable from the source at first glance, differing only in the specific text swaps listed below.
+You are NOT designing a new image from scratch. You are performing a controlled brand/IP-safe edit on an existing marketing image. The output should preserve the page layout and product storytelling, while changing source branding, visible people, and copied marketing text as instructed.
+
+${ipSafeSection}
 
 DO NOT under any circumstances:
 - ADD any text, label, badge, callout, size tag, dimension marker, or inset circle that is not in the source.
@@ -116,8 +136,9 @@ If you are tempted to add a label, enlarge a tag, or improve legibility by makin
   const rules = `STRICT RULES — do not break these:
 - Keep the EXACT same layout, composition, and image structure.
 - Keep product photos, backgrounds, lighting, perspective, cropping, and decorative elements 100% unchanged.
-- Keep all non-text visual elements (icons, arrows, diagrams, people, products) untouched.
-- Only modify text content as described above — do not move, resize, restyle, add, or remove any other element.
+- Keep all non-text visual elements (icons, arrows, diagrams, products) untouched unless the IP-safe mode explicitly says to replace a visible person's identity.
+${identityLine}
+- Only modify text content, source branding, and visible-person identity as described above — do not move, resize, restyle, add, or remove any other element.
 - Preserve the visual scale, position, angle, and prominence of every text element. A 20×60px care-tag stays a 20×60px care-tag in the output.
 - If a badge or label has an icon, keep the icon and only change the text next to it.
 - Do NOT fabricate product specifications, size labels, dimensions, or care instructions. If a piece of text is not clearly present in the source, it must not appear in the output.
@@ -173,7 +194,7 @@ function httpsJson(options, body = null) {
 }
 
 /**
- * Translate a single image URL using fal.ai Nano Banana Pro.
+ * Translate/edit a single image URL using GPT Image 2 on fal.ai.
  * Returns a Buffer with the translated image, or null on failure.
  *
  * @param {string} promptAddition - Optional extra sentences appended to the base
@@ -189,7 +210,11 @@ function httpsJson(options, body = null) {
  *     (e.g. "freeze comparison-grid layout").
  */
 async function translateImageWithFal(imageUrl, targetLanguage, brandName, falApiKey, retries = 2, promptAddition = '', costTracker = null, opts = {}) {
-  const basePrompt = buildTranslatePrompt(targetLanguage, brandName);
+  const falModel = 'openai/gpt-image-2/edit';
+  const basePrompt = buildTranslatePrompt(targetLanguage, brandName, {
+    ipSafeRewrite: opts.ipSafeRewrite,
+    allowIdentitySwap: !!opts.faceRefUrl,
+  });
   let prompt = basePrompt;
   if (opts.extraInstruction) {
     prompt += `\n\nPER-IMAGE GUIDANCE:\n${opts.extraInstruction}`;
@@ -209,13 +234,15 @@ async function translateImageWithFal(imageUrl, targetLanguage, brandName, falApi
     try {
       const res = await httpsJson({
         hostname: 'fal.run',
-        path: '/fal-ai/nano-banana-pro/edit',
+        path: `/${falModel}`,
         method: 'POST',
         headers: { 'Authorization': `Key ${falApiKey}` },
       }, {
         prompt,
         image_urls: imageUrlsForRequest,
-        aspect_ratio: 'auto',
+        image_size: 'auto',
+        quality: 'high',
+        input_fidelity: 'high',
         num_images: 1,
         output_format: 'jpeg',
       });
@@ -228,9 +255,10 @@ async function translateImageWithFal(imageUrl, targetLanguage, brandName, falApi
         fs.unlinkSync(tmpPath);
         if (costTracker) {
           costTracker.recordFal({
-            model: 'nano-banana-pro/edit',
+            model: falModel,
             numImages: 1,
             context: `translate → ${targetLanguage}`,
+            perImageUsd: 0.20,
           });
         }
         return buf;
@@ -243,14 +271,14 @@ async function translateImageWithFal(imageUrl, targetLanguage, brandName, falApi
           await new Promise(r => setTimeout(r, 2000));
           const statusRes = await httpsJson({
             hostname: 'queue.fal.run',
-            path: `/fal-ai/nano-banana-pro/edit/requests/${requestId}/status`,
+            path: `/${falModel}/requests/${requestId}/status`,
             method: 'GET',
             headers: { 'Authorization': `Key ${falApiKey}` },
           });
           if (statusRes.data?.status === 'COMPLETED') {
             const resultRes = await httpsJson({
               hostname: 'queue.fal.run',
-              path: `/fal-ai/nano-banana-pro/edit/requests/${requestId}`,
+              path: `/${falModel}/requests/${requestId}`,
               method: 'GET',
               headers: { 'Authorization': `Key ${falApiKey}` },
             });
@@ -261,9 +289,10 @@ async function translateImageWithFal(imageUrl, targetLanguage, brandName, falApi
               fs.unlinkSync(tmpPath);
               if (costTracker) {
                 costTracker.recordFal({
-                  model: 'nano-banana-pro/edit',
+                  model: falModel,
                   numImages: 1,
                   context: `translate → ${targetLanguage} (queued)`,
+                  perImageUsd: 0.20,
                 });
               }
               return buf;
@@ -280,6 +309,95 @@ async function translateImageWithFal(imageUrl, targetLanguage, brandName, falApi
     } catch (err) {
       if (attempt < retries) {
         console.log(`    [translate] Retry ${attempt + 1}/${retries}: ${err.message?.substring(0, 100)}`);
+        await new Promise(r => setTimeout(r, 3000));
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
+/**
+ * Edit a single image using Google's Gemini-native Nano Banana Pro path.
+ * This is the page-cloner fallback when FAL_API_KEY is not configured but
+ * GEMINI_API_KEY is available, matching the platform's Image Studio setup.
+ */
+async function translateImageWithGeminiNano(imageUrl, targetLanguage, brandName, googleApiKey, retries = 2, promptAddition = '', costTracker = null, opts = {}) {
+  if (!googleApiKey) {
+    throw new Error('translateImageWithGeminiNano: GEMINI_API_KEY not set');
+  }
+
+  let GoogleGenAI;
+  try {
+    ({ GoogleGenAI } = require('@google/genai'));
+  } catch (e) {
+    throw new Error('translateImageWithGeminiNano: @google/genai not installed');
+  }
+
+  const basePrompt = buildTranslatePrompt(targetLanguage, brandName, {
+    ipSafeRewrite: opts.ipSafeRewrite,
+    allowIdentitySwap: !!opts.faceRefUrl,
+  });
+  let prompt = basePrompt;
+  if (opts.extraInstruction) {
+    prompt += `\n\nPER-IMAGE GUIDANCE:\n${opts.extraInstruction}`;
+  }
+  if (opts.faceRefUrl) {
+    prompt += `\n\nIDENTITY SWAP. The first image is the source image to edit. The second image shows the target person. Replace any visible person in the source image with the person from the second image. Preserve pose, framing, lighting, wardrobe category, expression, body proportions, and overall composition exactly. Do not change the background, props, products, or anything else.`;
+  }
+  if (promptAddition) {
+    prompt += `\n\nADDITIONAL GUIDANCE (from QA review of a previous render — obey strictly):\n${promptAddition}`;
+  }
+
+  const fetchAsInlinePart = async (url) => {
+    const tmpPath = path.join(require('os').tmpdir(), `gemini-nano-src-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`);
+    await download(url, tmpPath);
+    const bytes = fs.readFileSync(tmpPath);
+    fs.unlinkSync(tmpPath);
+    return {
+      inlineData: {
+        mimeType: 'image/jpeg',
+        data: bytes.toString('base64'),
+      }
+    };
+  };
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const ai = new GoogleGenAI({ apiKey: googleApiKey });
+      const parts = [
+        await fetchAsInlinePart(imageUrl),
+      ];
+      if (opts.faceRefUrl) {
+        parts.push(await fetchAsInlinePart(opts.faceRefUrl));
+      }
+      parts.push({ text: prompt });
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-image-preview',
+        contents: [{ role: 'user', parts }],
+        config: { responseModalities: ['TEXT', 'IMAGE'] },
+      });
+
+      const outParts = response?.candidates?.[0]?.content?.parts || response?.parts || [];
+      for (const part of outParts) {
+        if (part.inlineData?.data) {
+          const buf = Buffer.from(part.inlineData.data, 'base64');
+          if (costTracker) {
+            costTracker.recordGoogle?.({
+              model: 'gemini-3-pro-image-preview',
+              numImages: 1,
+              context: `nano-banana-pro edit → ${targetLanguage}`,
+            });
+          }
+          return buf;
+        }
+      }
+
+      throw new Error('Gemini Nano Banana Pro returned no image');
+    } catch (err) {
+      if (attempt < retries) {
+        console.log(`    [gemini-nano] Retry ${attempt + 1}/${retries}: ${err.message?.substring(0, 100)}`);
         await new Promise(r => setTimeout(r, 3000));
       } else {
         throw err;
@@ -345,11 +463,18 @@ async function translateProductImages(imageUrls, targetLanguage, brandName, falA
     const perImageOpts = {
       faceRefUrl: policy.faceSwap ? faceRefUrl : null,
       extraInstruction: policy.extraInstruction || '',
+      ipSafeRewrite: true,
     };
 
     try {
       console.log(`  [translate] Image ${i + 1}/${imageUrls.length}${policy.faceSwap ? ' [+face-swap]' : ''}: ${url.substring(0, 80)}...`);
-      let buffer = await translateImageWithFal(url, targetLanguage, brandName, falApiKey, 2, calibratedPromptAddition, costTracker, perImageOpts);
+      const runPrimaryEdit = (addition) => {
+        if (falApiKey) {
+          return translateImageWithFal(url, targetLanguage, brandName, falApiKey, 2, addition, costTracker, perImageOpts);
+        }
+        return translateImageWithGeminiNano(url, targetLanguage, brandName, googleApiKey, 2, addition, costTracker, perImageOpts);
+      };
+      let buffer = await runPrimaryEdit(calibratedPromptAddition);
 
       // Per-image self-review. The canary (image 1) is allowed to MUTATE the
       // calibratedPromptAddition so its lessons help every subsequent image;
@@ -383,7 +508,7 @@ async function translateProductImages(imageUrls, targetLanguage, brandName, falA
           const retryAddition = i === 0 ? calibratedPromptAddition : verdict.promptAddition;
 
           console.log(`  [translate] Retry ${attempt}/${maxRetries} with tightened prompt...`);
-          buffer = await translateImageWithFal(url, targetLanguage, brandName, falApiKey, 2, retryAddition, costTracker, perImageOpts);
+          buffer = await runPrimaryEdit(retryAddition);
         }
 
         // If still failing after retries, try Google Imagen as a fallback.
@@ -391,7 +516,10 @@ async function translateProductImages(imageUrls, targetLanguage, brandName, falA
         if (!finalVerdict.acceptable && googleApiKey) {
           console.log(`  [translate] Image ${i + 1} still failing QA after nano-banana retries — falling back to Google Imagen`);
           try {
-            const fallbackPrompt = buildTranslatePrompt(targetLanguage, brandName) +
+            const fallbackPrompt = buildTranslatePrompt(targetLanguage, brandName, {
+              ipSafeRewrite: true,
+              allowIdentitySwap: !!perImageOpts.faceRefUrl,
+            }) +
               (perImageOpts.extraInstruction ? `\n\nPER-IMAGE GUIDANCE:\n${perImageOpts.extraInstruction}` : '') +
               (calibratedPromptAddition ? `\n\nADDITIONAL GUIDANCE:\n${calibratedPromptAddition}` : '');
             const imagenBuffer = await translateImageWithImagen(url, fallbackPrompt, googleApiKey, costTracker);
@@ -429,7 +557,10 @@ async function translateProductImages(imageUrls, targetLanguage, brandName, falA
       // Try Imagen as a last-resort even on hard error from nano-banana.
       if (googleApiKey) {
         try {
-          const fallbackPrompt = buildTranslatePrompt(targetLanguage, brandName) +
+          const fallbackPrompt = buildTranslatePrompt(targetLanguage, brandName, {
+            ipSafeRewrite: true,
+            allowIdentitySwap: !!perImageOpts.faceRefUrl,
+          }) +
             (perImageOpts.extraInstruction ? `\n\nPER-IMAGE GUIDANCE:\n${perImageOpts.extraInstruction}` : '');
           const imagenBuffer = await translateImageWithImagen(url, fallbackPrompt, googleApiKey, costTracker);
           console.log(`  [translate] Imagen recovered image ${i + 1}`);
@@ -590,6 +721,7 @@ async function translateImageWithImagen(imageUrl, prompt, googleApiKey, costTrac
 module.exports = {
   translateProductImages,
   translateImageWithFal,
+  translateImageWithGeminiNano,
   translateImageWithImagen,
   generateJobFace,
   buildTranslatePrompt,

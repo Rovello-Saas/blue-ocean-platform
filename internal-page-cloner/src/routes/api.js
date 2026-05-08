@@ -821,11 +821,11 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
 
     const storeConfigForImgs = getStoreConfig(storeId);
     const brandName = storeConfigForImgs.storeName || storeId;
-    let falApiKey = process.env.FAL_API_KEY || '';
+    let falApiKey = process.env.FAL_API_KEY || process.env.FAL_KEY || '';
     if (!falApiKey) {
       try {
         const envContent = require('fs').readFileSync(require('path').join(__dirname, '../../.env'), 'utf-8');
-        const falKeyMatch = envContent.match(/^FAL_API_KEY=(.+)$/m);
+        const falKeyMatch = envContent.match(/^FAL_API_KEY=(.+)$/m) || envContent.match(/^FAL_KEY=(.+)$/m);
         falApiKey = falKeyMatch ? falKeyMatch[1].trim() : '';
       } catch (e) {
         falApiKey = '';
@@ -853,14 +853,30 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
         ? `translate → ${LANGUAGE_NAMES[targetLanguage]} + brand → ${brandName}`
         : `brand-only → ${brandName}`;
 
+      // Resolve Google Nano Banana / Imagen API key. The page cloner used to
+      // silently upload originals when FAL_API_KEY was absent; the broader
+      // platform also supports Nano Banana Pro through GEMINI_API_KEY, so use
+      // that path as a fallback instead of skipping image safety edits. When
+      // FAL_API_KEY is present, the primary editor is GPT Image 2 on fal.ai.
+      let googleApiKey = process.env.GOOGLE_IMAGEN_API_KEY || process.env.GEMINI_API_KEY || '';
+      if (!googleApiKey) {
+        try {
+          const envContent = require('fs').readFileSync(require('path').join(__dirname, '../../.env'), 'utf-8');
+          const m = envContent.match(/^GOOGLE_IMAGEN_API_KEY=(.+)$/m) || envContent.match(/^GEMINI_API_KEY=(.+)$/m);
+          googleApiKey = m ? m[1].trim() : '';
+        } catch (e) {
+          googleApiKey = '';
+        }
+      }
+
       // Translate everything in one pass so we batch through Nano Banana once.
       // Items below `galleryCount` go to product gallery, the rest to theme
       // assets. translateProductImages returns { originalUrl, buffer? } per
       // input — when there's no buffer it means translation was skipped/failed
       // and we fall back to the original URL.
       let translated;
-      if (!falApiKey) {
-        console.warn(`[${jobId}] FAL_API_KEY not found — uploading originals (no Nano Banana edits)`);
+      if (!falApiKey && !googleApiKey) {
+        console.warn(`[${jobId}] No FAL_API_KEY or GEMINI_API_KEY found — uploading originals (no Nano Banana edits)`);
         translated = allImageUrls.map(u => ({ originalUrl: u, buffer: null }));
       } else {
         // Generate one reference face per job IF any image needs face-swap.
@@ -868,28 +884,15 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
         // page shows one consistent model instead of random AI faces.
         let jobFaceUrl = null;
         const faceSwapCount = allImageUrls.filter(u => policiesByUrl.get(u)?.faceSwap).length;
-        if (faceSwapCount > 0) {
+        if (faceSwapCount > 0 && falApiKey) {
           try {
             jobFaceUrl = await generateJobFace(falApiKey, { costTracker });
             console.log(`[${jobId}]   Job face generated for ${faceSwapCount} face-swap image(s)`);
           } catch (e) {
             console.warn(`[${jobId}]   Job face generation failed (${e.message?.substring(0, 100)}) — face-swap will use prompt-only fallback`);
           }
-        }
-
-        // Resolve Google Imagen / Gemini API key (fallback model when
-        // nano-banana QA fails). The same key works for both names — try
-        // GOOGLE_IMAGEN_API_KEY first, fall back to GEMINI_API_KEY which is
-        // what the rest of the platform already uses.
-        let googleApiKey = process.env.GOOGLE_IMAGEN_API_KEY || process.env.GEMINI_API_KEY || '';
-        if (!googleApiKey) {
-          try {
-            const envContent = require('fs').readFileSync(require('path').join(__dirname, '../../.env'), 'utf-8');
-            const m = envContent.match(/^GOOGLE_IMAGEN_API_KEY=(.+)$/m) || envContent.match(/^GEMINI_API_KEY=(.+)$/m);
-            googleApiKey = m ? m[1].trim() : '';
-          } catch (e) {
-            googleApiKey = '';
-          }
+        } else if (faceSwapCount > 0) {
+          console.log(`[${jobId}]   ${faceSwapCount} image(s) need person replacement; using Gemini Nano Banana Pro prompt-only identity rewrite`);
         }
         if (!googleApiKey) {
           console.log(`[${jobId}]   No GEMINI_API_KEY / GOOGLE_IMAGEN_API_KEY set — Imagen fallback disabled`);
