@@ -136,7 +136,7 @@ When you encounter these recurring source-page patterns, emit a section that mir
 - **Shipping / returns / warranty 3-4 box strip** — small icon + heading + one-line copy in 3 or 4 columns. Emit as an icon-strip, not as content-rows.
 - **"Targeted ritual" / 4 benefits with icons** — 4 column grid with icons and short labels. Emit as a 4-column icon grid.
 - **"Inside the tech" / labeled diagram** — a central product photo with 4 callouts pointing to features. Emit as a centered figure with surrounding labeled blocks (or as the source image used whole if it already has the labels baked in).
-- **Expert / doctor endorsement cards** — 2-3 expert headshots with name, credentials, affiliation, and an optional quote or video thumbnail. Emit as a 2- or 3-column card row.
+- **Expert / doctor endorsement cards** — 2-3 expert headshots with name, credentials, affiliation, and an optional quote or video thumbnail only when the source provides distinct expert cards. If the source provides one complete dermatologist/expert graphic, show it as one complete image; do not invent extra experts, names, credentials, or affiliations.
 - **Real results / before-after testimonials carousel** — a horizontal scroller of 4+ before/after pairs, each with a customer name, age, result label, and quote. Use a slider/carousel, not a stack of 3 separate sections.
 
 ## REQUIRED OUTPUT STRUCTURE
@@ -461,7 +461,7 @@ Now generate the complete file for "${productMeta.title}". Remember: unique CSS 
   liquid = sanitizeCardImageCropping(liquid);
   liquid = applySourcePaletteGuard(liquid, sourceDesign);
   liquid = injectBeforeAfterSliderFallback(liquid, beforeAfterAssets, sourceDesign, targetLanguage);
-  liquid = injectProductCardVisualsFallback(liquid, productCardAssets, sourceDesign, targetLanguage);
+  liquid = ensureProductCardVisualsCovered(liquid, productCardAssets);
   liquid = injectHorizonAtcOverride(liquid, sourceDesign);
 
   // Validate it has the required parts
@@ -562,6 +562,16 @@ function injectProductCardVisualsFallback(liquid, productCardAssets, sourceDesig
     buildProductCardVisualsSection(prefix, colors, assetsToShow, targetLanguage),
     `  [AI] Injected product-card visual fallback (${used}/${required} primary asset(s) used by model)`
   );
+}
+
+function ensureProductCardVisualsCovered(liquid, productCardAssets) {
+  if (!productCardAssets.length) return liquid;
+  const required = Math.min(3, productCardAssets.length);
+  const used = productCardAssets.filter(image => liquid.includes(image.src)).length;
+  if (used < required) {
+    console.log(`  [AI] Product-card visuals underused by model (${used}/${required}); leaving body unchanged to avoid duplicating the product gallery`);
+  }
+  return liquid;
 }
 
 function productCardFallbackCopy(targetLanguage) {
@@ -817,25 +827,28 @@ function buildBeforeAfterPairCarousel(prefix, colors, slides, targetLanguage) {
           </div>
         </div>`;
     }
-    // composite — split-via-background-position
+    // Composite before/after cards already contain the visual comparison.
+    // Keep them whole; forcing a fake split-slider stretches/crops the card.
     const src = escapeHtml(slot.composite.src);
     const alt = escapeHtml(slot.composite.label || `Before and after result ${i + 1}`);
     return `
         <div class="${prefix}-ba-slide" role="group" aria-label="Result ${i + 1} of ${slides.length}">
-          <div class="${prefix}-ba-compare" data-before-after-compare style="--position: 50%;">
-            <div class="${prefix}-ba-after-layer" style="background-image: url('${src}');" role="img" aria-label="${alt} – ${escapeHtml(copy.after)}"></div>
-            <div class="${prefix}-ba-before-layer" style="background-image: url('${src}');" role="img" aria-label="${alt} – ${escapeHtml(copy.before)}"></div>
-            <span class="${prefix}-ba-tag ${prefix}-ba-tag-before">${escapeHtml(copy.before)}</span>
-            <span class="${prefix}-ba-tag ${prefix}-ba-tag-after">${escapeHtml(copy.after)}</span>
-            <span class="${prefix}-ba-divider" aria-hidden="true"></span>
-            <span class="${prefix}-ba-handle" aria-hidden="true">↔</span>
-            <input class="${prefix}-ba-range" type="range" min="0" max="100" value="50" aria-label="${escapeHtml(copy.subhead)}">
-          </div>
+          <figure class="${prefix}-ba-composite-card">
+            <img src="${src}" alt="${alt}" loading="lazy">
+          </figure>
         </div>`;
   }).join('');
 
   const dots = slides.map((_, i) => `
         <button class="${prefix}-ba-dot" type="button" aria-label="Show result ${i + 1}" aria-current="${i === 0 ? 'true' : 'false'}"></button>`).join('');
+  const controls = slides.length > 1 ? `
+      <div class="${prefix}-ba-controls" aria-label="${escapeHtml(copy.heading)}">
+        <button class="${prefix}-ba-button ${prefix}-ba-prev" type="button" aria-label="${escapeHtml(copy.prev)}">‹</button>
+        <div class="${prefix}-ba-dots">
+${dots}
+        </div>
+        <button class="${prefix}-ba-button ${prefix}-ba-next" type="button" aria-label="${escapeHtml(copy.next)}">›</button>
+      </div>` : '';
 
   const css = `
 
@@ -938,6 +951,20 @@ function buildBeforeAfterPairCarousel(prefix, colors, slides, targetLanguage) {
     left: 0;
     width: var(--position, 50%);
     background-position: 0% 50%;
+  }
+  .${prefix}-ba-composite-card {
+    margin: 0 auto;
+    max-width: 760px;
+    border-radius: 22px;
+    overflow: hidden;
+    background: #fff;
+  }
+  .${prefix}-ba-composite-card img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: contain;
+    background: #fff;
   }
   /* Shared overlays: tags, divider, handle, slider input. */
   .${prefix}-ba-tag {
@@ -1054,6 +1081,9 @@ function buildBeforeAfterPairCarousel(prefix, colors, slides, targetLanguage) {
       aspect-ratio: 4 / 3;
       border-radius: 18px;
     }
+    .${prefix}-ba-composite-card {
+      border-radius: 18px;
+    }
     .${prefix}-ba-handle {
       width: 44px;
       height: 44px;
@@ -1072,13 +1102,7 @@ function buildBeforeAfterPairCarousel(prefix, colors, slides, targetLanguage) {
 ${slideHtml}
         </div>
       </div>
-      <div class="${prefix}-ba-controls" aria-label="${escapeHtml(copy.heading)}">
-        <button class="${prefix}-ba-button ${prefix}-ba-prev" type="button" aria-label="${escapeHtml(copy.prev)}">‹</button>
-        <div class="${prefix}-ba-dots">
-${dots}
-        </div>
-        <button class="${prefix}-ba-button ${prefix}-ba-next" type="button" aria-label="${escapeHtml(copy.next)}">›</button>
-      </div>
+${controls}
     </div>
   </section>`;
 
@@ -1122,286 +1146,12 @@ ${dots}
 // Legacy helper kept for back-compat. Delegates to the unified pair carousel
 // so all callers produce the same interactive widget.
 function buildBeforeAfterCarousel(prefix, colors, images, targetLanguage) {
-  const copy = beforeAfterCopy(targetLanguage);
-
-  // Each composite is rendered as an interactive compare slider. We assume the
-  // composite is a horizontal [BEFORE | AFTER] photo (the dominant convention
-  // on Solawave-style real-results carousels). The trick: we use the same
-  // composite as a background-image at 200% width on two stacked layers, with
-  // background-position cropping each layer to one half. The "before" layer is
-  // clip-pathed by the slider position, revealing the "after" layer beneath.
-  // This gives the user a real drag-to-reveal experience on a single composite
-  // image without needing separate before/after files.
-  const slides = images.map((image, i) => {
-    const safeSrc = escapeHtml(image.src);
-    const safeAlt = escapeHtml(image.label || `Before and after result ${i + 1}`);
-    return `
-        <div class="${prefix}-ba-slide" role="group" aria-label="Result ${i + 1} of ${images.length}">
-          <div class="${prefix}-ba-compare" data-before-after-compare style="--position: 50%;">
-            <div class="${prefix}-ba-after-layer" style="background-image: url('${safeSrc}');" role="img" aria-label="${safeAlt} – ${escapeHtml(copy.after)}"></div>
-            <div class="${prefix}-ba-before-layer" style="background-image: url('${safeSrc}');" role="img" aria-label="${safeAlt} – ${escapeHtml(copy.before)}"></div>
-            <span class="${prefix}-ba-tag ${prefix}-ba-tag-before">${escapeHtml(copy.before)}</span>
-            <span class="${prefix}-ba-tag ${prefix}-ba-tag-after">${escapeHtml(copy.after)}</span>
-            <span class="${prefix}-ba-divider" aria-hidden="true"></span>
-            <span class="${prefix}-ba-handle" aria-hidden="true">↔</span>
-            <input class="${prefix}-ba-range" type="range" min="0" max="100" value="50" aria-label="${escapeHtml(copy.subhead)}">
-          </div>
-        </div>`;
-  }).join('');
-
-  const dots = images.map((_, i) => `
-        <button class="${prefix}-ba-dot" type="button" aria-label="Show result ${i + 1}" aria-current="${i === 0 ? 'true' : 'false'}"></button>`).join('');
-
-  const css = `
-
-  .${prefix}-ba-section {
-    margin: clamp(36px, 7vw, 76px) auto;
-    padding: clamp(24px, 5vw, 56px);
-    border-radius: 32px;
-    background: linear-gradient(135deg, ${colors.cream}, ${colors.soft});
-  }
-  .${prefix}-ba-heading {
-    max-width: 780px;
-    margin: 0 auto 24px;
-    text-align: center;
-  }
-  .${prefix}-ba-heading h2 {
-    margin: 0 0 10px;
-    color: ${colors.dark};
-    font-size: clamp(32px, 5vw, 58px);
-    line-height: 0.98;
-  }
-  .${prefix}-ba-heading p {
-    margin: 0;
-    color: ${colors.dark};
-    opacity: .76;
-    font-size: clamp(16px, 2vw, 20px);
-  }
-  .${prefix}-ba-carousel {
-    max-width: 980px;
-    margin: 0 auto;
-  }
-  .${prefix}-ba-viewport {
-    overflow: hidden;
-    border-radius: 28px;
-    background: #fff;
-    box-shadow: 0 24px 70px rgba(82, 38, 58, .16);
-  }
-  .${prefix}-ba-track {
-    display: flex;
-    transition: transform .36s ease;
-    will-change: transform;
-  }
-  .${prefix}-ba-slide {
-    flex: 0 0 100%;
-    padding: clamp(10px, 2vw, 18px);
-    background: #fff;
-  }
-  .${prefix}-ba-compare {
-    position: relative;
-    width: 100%;
-    aspect-ratio: 4 / 3;
-    overflow: hidden;
-    border-radius: 22px;
-    background: #f6eee9;
-    user-select: none;
-    touch-action: none;
-  }
-  .${prefix}-ba-after-layer,
-  .${prefix}-ba-before-layer {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    background-size: 200% 100%;
-    background-repeat: no-repeat;
-    background-color: #fff;
-  }
-  .${prefix}-ba-after-layer {
-    left: 0;
-    right: 0;
-    background-position: 100% 50%;
-  }
-  .${prefix}-ba-before-layer {
-    left: 0;
-    width: var(--position, 50%);
-    background-position: 0% 50%;
-  }
-  .${prefix}-ba-tag {
-    position: absolute;
-    top: 14px;
-    z-index: 3;
-    padding: 6px 12px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, .92);
-    color: ${colors.dark};
-    font-weight: 800;
-    letter-spacing: .04em;
-    text-transform: uppercase;
-    font-size: 11px;
-    pointer-events: none;
-  }
-  .${prefix}-ba-tag-before { left: 14px; }
-  .${prefix}-ba-tag-after  { right: 14px; }
-  .${prefix}-ba-divider {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: var(--position, 50%);
-    z-index: 4;
-    width: 3px;
-    transform: translateX(-50%);
-    background: #fff;
-    box-shadow: 0 0 0 1px rgba(82, 38, 58, .14);
-    pointer-events: none;
-  }
-  .${prefix}-ba-handle {
-    position: absolute;
-    top: 50%;
-    left: var(--position, 50%);
-    z-index: 5;
-    display: grid;
-    place-items: center;
-    width: 52px;
-    height: 52px;
-    border-radius: 999px;
-    transform: translate(-50%, -50%);
-    background: #fff;
-    color: ${colors.accent};
-    box-shadow: 0 12px 32px rgba(82, 38, 58, .25);
-    font-weight: 800;
-    pointer-events: none;
-    font-size: 18px;
-  }
-  .${prefix}-ba-range {
-    position: absolute;
-    inset: 0;
-    z-index: 6;
-    width: 100%;
-    height: 100%;
-    margin: 0;
-    appearance: none;
-    background: transparent;
-    opacity: 0;
-    cursor: ew-resize;
-  }
-  .${prefix}-ba-range::-webkit-slider-thumb {
-    appearance: none;
-    width: 60px;
-    height: 100%;
-  }
-  .${prefix}-ba-controls {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
-    margin-top: 18px;
-  }
-  .${prefix}-ba-button {
-    display: grid;
-    place-items: center;
-    width: 46px;
-    height: 46px;
-    border: 0;
-    border-radius: 999px;
-    background: #fff;
-    color: ${colors.dark};
-    box-shadow: 0 10px 28px rgba(82, 38, 58, .16);
-    cursor: pointer;
-    font-size: 22px;
-    line-height: 1;
-  }
-  .${prefix}-ba-dots {
-    display: flex;
-    gap: 8px;
-  }
-  .${prefix}-ba-dot {
-    width: 9px;
-    height: 9px;
-    padding: 0;
-    border: 0;
-    border-radius: 999px;
-    background: rgba(82, 38, 58, .25);
-    cursor: pointer;
-  }
-  .${prefix}-ba-dot[aria-current="true"] {
-    width: 26px;
-    background: ${colors.accent};
-  }
-  @media (max-width: 749px) {
-    .${prefix}-ba-section {
-      padding: 22px 14px;
-      border-radius: 24px;
-    }
-    .${prefix}-ba-slide {
-      padding: 8px;
-    }
-    .${prefix}-ba-compare {
-      aspect-ratio: 4 / 3;
-      border-radius: 18px;
-    }
-    .${prefix}-ba-handle {
-      width: 44px;
-      height: 44px;
-    }
-  }`;
-
-  const section = `
-  <section class="${prefix}-ba-section">
-    <div class="${prefix}-ba-heading">
-      <h2>${escapeHtml(copy.heading)}</h2>
-      <p>${escapeHtml(copy.subhead)}</p>
-    </div>
-    <div class="${prefix}-ba-carousel" data-before-after-carousel>
-      <div class="${prefix}-ba-viewport">
-        <div class="${prefix}-ba-track">
-${slides}
-        </div>
-      </div>
-      <div class="${prefix}-ba-controls" aria-label="${escapeHtml(copy.heading)}">
-        <button class="${prefix}-ba-button ${prefix}-ba-prev" type="button" aria-label="${escapeHtml(copy.prev)}">‹</button>
-        <div class="${prefix}-ba-dots">
-${dots}
-        </div>
-        <button class="${prefix}-ba-button ${prefix}-ba-next" type="button" aria-label="${escapeHtml(copy.next)}">›</button>
-      </div>
-    </div>
-  </section>`;
-
-  const script = `
-  document.querySelectorAll('.${prefix}-ba-compare').forEach(function(compare) {
-    var range = compare.querySelector('.${prefix}-ba-range');
-    if (!range) return;
-    var update = function() {
-      compare.style.setProperty('--position', range.value + '%');
-    };
-    range.addEventListener('input', update);
-    range.addEventListener('change', update);
-    update();
-  });
-  document.querySelectorAll('.${prefix}-ba-carousel').forEach(function(carousel) {
-    var track = carousel.querySelector('.${prefix}-ba-track');
-    var slides = Array.prototype.slice.call(carousel.querySelectorAll('.${prefix}-ba-slide'));
-    var dots = Array.prototype.slice.call(carousel.querySelectorAll('.${prefix}-ba-dot'));
-    var prev = carousel.querySelector('.${prefix}-ba-prev');
-    var next = carousel.querySelector('.${prefix}-ba-next');
-    var index = 0;
-    if (!track || slides.length < 2) return;
-    var show = function(nextIndex) {
-      index = (nextIndex + slides.length) % slides.length;
-      track.style.transform = 'translateX(' + (-index * 100) + '%)';
-      dots.forEach(function(dot, dotIndex) {
-        dot.setAttribute('aria-current', dotIndex === index ? 'true' : 'false');
-      });
-    };
-    if (prev) prev.addEventListener('click', function() { show(index - 1); });
-    if (next) next.addEventListener('click', function() { show(index + 1); });
-    dots.forEach(function(dot, dotIndex) {
-      dot.addEventListener('click', function() { show(dotIndex); });
-    });
-    show(0);
-  });`;
-
-  return { css, section, script };
+  return buildBeforeAfterPairCarousel(
+    prefix,
+    colors,
+    images.map(image => ({ kind: 'composite', composite: image })),
+    targetLanguage
+  );
 }
 
 function buildBeforeAfterCompareSlider(prefix, colors, before, after, targetLanguage) {
