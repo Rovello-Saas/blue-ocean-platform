@@ -107,6 +107,29 @@ def _ensure_node_modules(cloner_dir: Path) -> None:
     if not shutil.which("npm"):
         raise RuntimeError("npm is not available, so the built-in page cloner cannot install dependencies.")
 
+    # Wipe any partial node_modules before running npm ci. On Streamlit
+    # Cloud's overlay filesystem, an interrupted previous install can leave
+    # orphaned files that npm ci's own cleanup hits ENOTEMPTY on (most often
+    # in puppeteer-core/lib/esm/puppeteer/bidi). shutil.rmtree + find -delete
+    # are more reliable than letting npm clean itself up, so we always start
+    # from a known-clean state.
+    if node_modules.exists():
+        try:
+            shutil.rmtree(node_modules)
+        except OSError:
+            # rmtree can fail on overlay FS too; fall back to find -delete
+            # which tolerates non-empty subdirs by deleting bottom-up.
+            subprocess.run(
+                ["find", str(node_modules), "-mindepth", "1", "-delete"],
+                check=False,
+            )
+            try:
+                node_modules.rmdir()
+            except OSError:
+                # If the dir itself can't be removed, npm ci will recreate
+                # it — proceeding gives npm a chance to succeed anyway.
+                pass
+
     install_env = os.environ.copy()
     install_env.setdefault("npm_config_cache", str(PROJECT_ROOT / ".cache" / "npm"))
     install_env.setdefault("PUPPETEER_SKIP_DOWNLOAD", "true")
