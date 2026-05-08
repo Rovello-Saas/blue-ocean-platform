@@ -51,6 +51,7 @@ const { analyzeImages, classifyImagePurposes } = require('../src/scraper/image-a
 const { policyFor } = require('../src/ai/image-policy');
 const { extractPalette } = require('../src/scraper/palette-extractor');
 const { generateFullLiquid } = require('../src/ai/generate-content');
+const { categorizeProductImages } = require('../src/routes/api');
 
 function parseArgs(argv) {
   const out = { url: null, noCache: false, translate: false, lang: 'de', store: 'movanella' };
@@ -153,6 +154,29 @@ async function main() {
     });
   }
   if (droppedFromOutput.length) console.log(`🗑️  Dropped ${droppedFromOutput.length} logo-strip image(s) before liquid gen`);
+
+  // Tag each surviving productMeta image with its purpose, then simulate
+  // the gallery-vs-content split that would happen on a real Shopify push.
+  // The gallery list is what shows up as thumbnails in Movanella's product
+  // card. The content list becomes inline body imagery only.
+  for (const img of productMeta.images || []) {
+    const p = classifications.get(img.src);
+    if (p) img.purpose = p;
+  }
+  const split = categorizeProductImages(productMeta.images);
+  console.log(`🖼️  Gallery (Shopify product card): ${split.gallery.length} image(s) — what would show as thumbnails`);
+  for (const img of split.gallery.slice(0, 8)) {
+    console.log(`     · ${img.purpose || img.sourceRole || '?'}: ${(img.src || '').substring(0, 80)}`);
+  }
+  if (split.gallery.length > 8) console.log(`     · ... and ${split.gallery.length - 8} more`);
+  console.log(`📰 Content (theme assets, body-only): ${split.content.length} image(s)`);
+  fs.writeFileSync(
+    path.join(jobDir, 'gallery-split.json'),
+    JSON.stringify({
+      gallery: split.gallery.map(i => ({ src: i.src, purpose: i.purpose, role: i.sourceRole })),
+      content: split.content.map(i => ({ src: i.src, purpose: i.purpose, role: i.sourceRole })),
+    }, null, 2)
+  );
 
   // Extract palette so we can show it before generation
   try {
