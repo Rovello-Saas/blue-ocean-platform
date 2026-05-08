@@ -159,33 +159,32 @@ async function extractPalette(screenshotPath) {
     ? ((Math.atan2(cy, cx) * 180) / Math.PI + 360) % 360
     : null;
 
-  // Accent = saturated mid-bright bucket whose hue is in the dominant hue
-  // family. We DELIBERATELY do NOT require a count threshold here — UI
-  // elements like ATC buttons are tiny relative to the page (often well
-  // under 0.1% of pixels) but are exactly the colors we want. The hue gate
-  // filters out noise: a teal compression patch on a pink page won't pass
-  // even at high saturation because its hue is 175° from a 350° page.
-  let accentCandidates = items.filter(it =>
-    it.sum >= 200 && it.sum <= 560 &&
-    it.saturation >= 0.30 &&
-    (dominantHue === null || hueDistance(it.hue, dominantHue) <= 30)
-  );
-  if (!accentCandidates.length) {
-    // Soft-pastel page: relax saturation, widen hue gate
-    accentCandidates = items.filter(it =>
-      it.sum >= 200 && it.sum <= 600 &&
-      it.saturation >= 0.18 &&
-      (dominantHue === null || hueDistance(it.hue, dominantHue) <= 45)
-    );
+  // Accent = saturated mid-bright bucket whose hue is in the dominant
+  // family. Tiered to prefer high-saturation UI colors over large areas of
+  // mid-saturation content (skin tones in lifestyle photos kept beating
+  // small ATC buttons in v1). Within each tier, score = saturation × log(1+count)
+  // — count weight is gentle so a 50,000-pixel skin-tone area can't outrank
+  // a 1,000-pixel firmly-saturated brand color.
+  function scoreCandidate(it) {
+    return it.saturation * Math.log1p(it.count);
   }
-  // Score: saturation primary, count secondary. sqrt(count) keeps small
-  // saturated UI elements competitive with large soft-saturated areas.
-  const accent = accentCandidates.length
-    ? accentCandidates.sort((a, b) =>
-        (b.saturation * 2 + Math.sqrt(b.count) * 0.05) -
-        (a.saturation * 2 + Math.sqrt(a.count) * 0.05)
-      )[0]
-    : byCountLowSat[2] || surface;
+  function pickBest(filterFn) {
+    const candidates = items.filter(filterFn);
+    if (!candidates.length) return null;
+    return candidates.sort((a, b) => scoreCandidate(b) - scoreCandidate(a))[0];
+  }
+  const hueOk = (it, maxDist = 30) =>
+    dominantHue === null || hueDistance(it.hue, dominantHue) <= maxDist;
+  const brightnessOk = (it) => it.sum >= 200 && it.sum <= 560;
+  const accent =
+    // Tier 1: firmly saturated UI color (button/badge) in dominant hue
+    pickBest(it => brightnessOk(it) && it.saturation >= 0.45 && hueOk(it, 30)) ||
+    // Tier 2: medium saturation in dominant hue (mid-tone brand color)
+    pickBest(it => brightnessOk(it) && it.saturation >= 0.30 && hueOk(it, 30)) ||
+    // Tier 3: pastel — relax saturation AND widen hue gate
+    pickBest(it => it.sum >= 200 && it.sum <= 600 && it.saturation >= 0.18 && hueOk(it, 45)) ||
+    byCountLowSat[2] ||
+    surface;
 
   // Accent dark = darker shade in the same hue family (for hover/buttons-dark)
   const darkCandidates = items.filter(it =>

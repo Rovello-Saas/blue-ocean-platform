@@ -65,6 +65,17 @@ function classifyOne(img) {
   if (/\b(?:logo|press|featured-in|featured_in|as-seen-in|magazine|award|badges?|elle|vogue|cosmopolitan|allure|women's-?health|nordstrom|ulta|sephora)\b/.test(haystack)) {
     return 'logo-strip';
   }
+  // US/region maps and retail-locator graphics — these are source-specific
+  // and can't be made authentic on a clone. Always drop.
+  if (/\bmap-?(?:locations|of|retailers?)?\b|\b(?:us|usa|united-states|europe)-?map\b|retailer-?map|retail-?locations|store-?locator/.test(haystack)) {
+    return 'logo-strip';
+  }
+  // Doctor / expert headshots — these are claimed endorsements that we
+  // can't lift. Drop from the gallery, the AI body section can ref them
+  // generically as "Dr. X" without the photo.
+  if (/\bdr[\.\-_\s]|doctor|md[\.\-_\s]|ph[\.\-_\s]?d|dermatologist[-_\s]?headshot|expert[-_\s]?(?:photo|headshot)/.test(haystack)) {
+    return 'logo-strip';
+  }
   if (/comparison|compare|vs\.?\b|versus|chart|table|spec-?sheet|specs|side[-_\s]?by[-_\s]?side/.test(haystack)) {
     return 'comparison-composite';
   }

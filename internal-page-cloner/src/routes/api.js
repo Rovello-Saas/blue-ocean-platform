@@ -205,14 +205,26 @@ function extractImageUrlsFromLiquid(liquidContent) {
 // The split fixes the gallery-pollution we kept seeing on Solawave clones,
 // where the LED face mask, doctor headshots, and before/after photos were
 // landing in the product card.
+// GALLERY-ELIGIBLE purposes: things a customer expects to see in a
+// product-card carousel (multiple thumbnails of the wand, lifestyle
+// shots, hero shots). The cloner pre-classifies every image into a
+// purpose; here we use that to decide gallery vs content placement
+// instead of relying on the source theme's CSS class names (which is
+// what the old `sourceRole` check did, and which falsely tagged ALL
+// of Solawave's gallery images as `page-image` because Solawave's
+// theme uses non-standard class names).
+const GALLERY_PURPOSES = new Set(['hero', 'product-only', 'lifestyle-with-person']);
+
 function categorizeProductImages(productImages) {
   const all = (productImages || []).filter(Boolean);
 
   const gallery = [];
   const content = [];
   const seen = new Set();
+  const GALLERY_CAP = 15;
 
-  // First pass: JSON-LD product images are always canonical.
+  // First pass: JSON-LD product images are always canonical (the source
+  // page itself declared these as the product's photos).
   for (const img of all) {
     if (typeof img === 'string') continue;
     if (img?.sourceRole !== 'product-structured-data') continue;
@@ -222,27 +234,45 @@ function categorizeProductImages(productImages) {
     gallery.push(img);
   }
 
-  // Second pass: if JSON-LD only gave us a couple of images, pull in the
-  // top-of-page product-media-gallery shots too (capped) so the gallery is
-  // not painfully bare. Anything past the cap goes to content.
-  const galleryFallbackCap = Math.max(0, 12 - gallery.length);
-  let galleryFallbackUsed = 0;
+  // Second pass: source's own product-media-gallery container, if we
+  // detected one (this is the OLD selector-based path — works on Shopify
+  // themes that use product__media-style class names).
   for (const img of all) {
     if (typeof img === 'string') continue;
     if (img?.sourceRole !== 'product-media-gallery') continue;
     const k = imageDedupeKey(img.src);
     if (!k || seen.has(k)) continue;
-    if (galleryFallbackUsed < galleryFallbackCap) {
+    if (gallery.length < GALLERY_CAP) {
       seen.add(k);
       gallery.push(img);
-      galleryFallbackUsed++;
     } else {
       seen.add(k);
       content.push(img);
     }
   }
 
-  // Everything else (page-image, anything unclassified) is content.
+  // Third pass — purpose-based fallback. When the source theme doesn't
+  // expose a product-media container in a recognizable way (Solawave's
+  // case), fall through to image-purpose classification: any image
+  // tagged hero/product-only/lifestyle-with-person is gallery-eligible.
+  // This is what makes a Solawave clone show 5+ thumbnails instead of 1.
+  for (const img of all) {
+    if (typeof img !== 'object' || !img) continue;
+    if (!GALLERY_PURPOSES.has(img.purpose)) continue;
+    const k = imageDedupeKey(img.src);
+    if (!k || seen.has(k)) continue;
+    if (gallery.length < GALLERY_CAP) {
+      seen.add(k);
+      gallery.push(img);
+    } else {
+      seen.add(k);
+      content.push(img);
+    }
+  }
+
+  // Final pass: everything else (unclassified, callout-with-text,
+  // comparison-composite, etc.) is content — the AI body sections
+  // reference these as theme assets, never as Shopify gallery images.
   for (const img of all) {
     if (typeof img === 'string') {
       const k = imageDedupeKey(img);
@@ -1222,3 +1252,8 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
 }
 
 module.exports = router;
+// Also export internals so dry-clone.js (and tests) can simulate the
+// gallery-vs-content split without spinning up the full HTTP server.
+module.exports.categorizeProductImages = categorizeProductImages;
+module.exports.imageDedupeKey = imageDedupeKey;
+module.exports.normalizeImageUrl = normalizeImageUrl;

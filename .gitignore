@@ -69,3 +69,6 @@ shopify.app.toml
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Local dry-run output (scripts/dry-clone.js)
+internal-page-cloner/data/dry-runs/
