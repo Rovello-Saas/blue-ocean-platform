@@ -1,0 +1,4 @@
+{
+  "_comment": "Hardcoded exchange rates for cloner pricing. Update manually if rates drift materially. Used by src/ai/generate-content.js when converting source-page USD prices to the target market's currency.",
+  "USD_EUR": 0.92
+}

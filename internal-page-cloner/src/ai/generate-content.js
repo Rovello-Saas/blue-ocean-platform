@@ -1,4 +1,5 @@
 const { callClaudeWithImage } = require('./client');
+const { extractPalette } = require('../scraper/palette-extractor');
 const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
@@ -30,6 +31,49 @@ const LANGUAGE_LABELS = {
   nl: 'Dutch'
 };
 
+// Currency mapping per target language. Source pages are typically USD; we
+// convert to the shopper's market currency before showing the AI. Keep this
+// list narrow — add more only when a market is wired up end-to-end.
+const LANGUAGE_CURRENCY = {
+  de: { code: 'EUR', symbol: '€', rateKey: 'USD_EUR' },
+  fr: { code: 'EUR', symbol: '€', rateKey: 'USD_EUR' },
+  es: { code: 'EUR', symbol: '€', rateKey: 'USD_EUR' },
+  it: { code: 'EUR', symbol: '€', rateKey: 'USD_EUR' },
+  nl: { code: 'EUR', symbol: '€', rateKey: 'USD_EUR' }
+};
+
+let _fxRates = null;
+function loadFxRates() {
+  if (_fxRates) return _fxRates;
+  try {
+    _fxRates = JSON.parse(fs.readFileSync(path.join(__dirname, '../../data/fx-rates.json'), 'utf-8'));
+  } catch (e) {
+    _fxRates = { USD_EUR: 0.92 };
+  }
+  return _fxRates;
+}
+
+function currencyForLanguage(lang) {
+  return LANGUAGE_CURRENCY[lang] || null;
+}
+
+// Convert a price string like "$169" / "169.00" / "USD 169" to the target
+// currency. Returns the converted display string with the new symbol, e.g.
+// "€156". Falls back to the input unchanged if no number can be parsed.
+function convertPriceString(input, currency) {
+  if (input == null || input === '' || input === 'N/A') return input;
+  const text = String(input);
+  const match = text.match(/(\d+(?:[.,]\d{1,2})?)/);
+  if (!match) return input;
+  const usd = parseFloat(match[1].replace(',', '.'));
+  if (!isFinite(usd)) return input;
+  const rates = loadFxRates();
+  const rate = rates[currency.rateKey];
+  if (!rate) return input;
+  const converted = Math.round(usd * rate);
+  return `${currency.symbol}${converted}`;
+}
+
 function getSystemPrompt(storeId, targetLanguage) {
   const storeConfig = {
     movanella: {
@@ -51,7 +95,7 @@ function getSystemPrompt(storeId, targetLanguage) {
 
 Brand: ${store.name} (${store.domain})
 Language: ${store.lang}
-Brand voice: Clean, confident, benefit-focused. Short sentences. No hype or excessive exclamation marks. Professional but warm.
+Brand voice: Translate the source page's voice faithfully. Do NOT impose ${store.name}'s house tone over the source's tone. If the source is playful, the target language version is playful; if clinical, clinical; if punchy, punchy. Your job is to localize copy, not rebrand it.
 
 You will receive a screenshot and scraped data from a source product page. Your job is to create a COMPLETE Liquid file (HTML + CSS + JavaScript) that faithfully recreates the source product page's visual direction and section flow inside Shopify. All text must be in ${store.lang}. Never use the source brand name in written copy — use generic product language or "${store.name}" where a brand is required.
 
@@ -61,7 +105,19 @@ This is a page clone, not a generic ${store.name} template.
 - Preserve the source page's color palette from the screenshot and image assets. If the source page is blush/pink/rose/cream, use blush/pink/rose/cream. If it is blue, use blue. Do NOT force ${store.name}'s default colors.
 - Preserve the source page's section sequence and visual concepts as much as possible: product hero, benefits, science/technology explanation, how-to-use, results/statistics, comparison chart, before/after proof, expert/social proof, guarantee, FAQ.
 - Preserve source image compositions. If an image is already a before/after composite, comparison chart, infographic, dermatologist card, quote card, or guarantee graphic, use it as ONE whole image. Do NOT split it into separate "before" and "after" images. Do NOT recreate it as unrelated cards.
-- Keep the look close to the source, but rewrite copy so it is original and does not mention the source brand.
+- Keep the look AND copy close to the source. Translate text faithfully into ${store.lang}. Do NOT paraphrase, condense, or "improve" the source's wording. Strip any reference to the source brand by name.
+
+## NUMBERS POLICY (HARD RULES)
+
+For every numeric claim in the source, follow this table — never invent, never inflate:
+
+- Clinical-study percentages (e.g. "33% / 31% / 30% after 8 weeks") → KEEP THE EXACT NUMBERS. Never replace 33 with 95, never round up, never invent new percentages.
+- Customer counts ≥ 250,000 → soften to a believable number ≤ 50,000, or use phrasing like "tausende zufriedene Kund:innen" (German) / "thousands of happy customers" (other languages). Do NOT preserve "726,000+ customers" or similar inflated counts.
+- Award counts ≥ 20 → replace the number with "ausgezeichnet" / "preisgekrönt" (German) / "award-winning". Do NOT print "60+ awards".
+- Star rating across reviews: keep the average stars (round to 1 decimal, max 4.9). Drop the review count entirely if ≥ 50,000 — never claim "726,000 reviews".
+- Retail-store presence claims ("in 2,100+ U.S. retailers", "available at Ulta / Nordstrom", "found in stores nationwide") → DROP THE ENTIRE SECTION. Do not localize. Do not emit a "we're in many European stores" replacement. The retail-presence concept is removed from the page.
+- Years, dates, study durations (8 weeks, 12 weeks, 2024, etc.) → keep verbatim.
+- Prices ($169, $250) → see CURRENCY POLICY (use the converted price from productMeta).
 
 ## SECTION FIDELITY (HARD REQUIREMENT)
 
@@ -124,6 +180,10 @@ In-body price CTAs further down the page (e.g. a "Movanella wand €169 vs derma
 
 DO NOT emit any "Choose your offer / Single / Duo / Trio" bundle UI — bundles are handled separately by an external app, not by you.
 
+NEVER EMIT A SECOND HERO. The blueprint may contain entries flagged \`consumedByHero: true\` — these correspond to source elements (title, price, rating, hero bullets, primary buy-box) that the hero/buy-box section above already renders. Do NOT emit a second section for them. Skip those blueprint entries entirely when generating body sections. The hero appears on the page exactly once.
+
+If the source uses a sticky-left product gallery (\`stickyHero: true\` on the first blueprint entry), make the gallery column \`position: sticky; top: 16px; align-self: start;\` on desktop only (\`@media (min-width: 750px)\`). The right (buy-box) column scrolls naturally as the user reads the trust content below it. On mobile, the columns stack and sticky is disabled.
+
 ## CRITICAL RULES
 
 - Generate a UNIQUE 2-4 character CSS class prefix from the product name (e.g., \`cap-\` for Cloud Alignment Pillow, \`mls-\` for Motion LED Strip)
@@ -138,9 +198,12 @@ DO NOT emit any "Choose your offer / Single / Duo / Trio" bundle UI — bundles 
 - Mobile breakpoint: \`@media (max-width: 749px)\` — Horizon theme uses 749px
 - SVG circle stats: use \`stroke-dasharray\` to show percentage (e.g., 207 = full circle with r=33, so 97% = \`stroke-dasharray="201 20"\`). Ring stroke = source accent color.
 - FAQ accordion JavaScript: toggle \`.open\` class on \`.PREFIX-faq-item\`
-- REWRITE all content — never copy source text verbatim. Never mention the source brand name.
-- All review content must be original (create realistic-sounding reviews based on product benefits)
-- Stats percentages should be realistic and may mirror the source page's visible style/range.
+- TRANSLATION, NOT REWRITING. The SOURCE SECTION BLUEPRINT below contains \`headingsText\`, \`paragraphsText\`, and \`bullets\` arrays for every detected source section. Translate these faithfully into ${store.lang}. Do NOT paraphrase, embellish, condense, or "improve". A short German clause that mirrors the source is correct; an expanded marketing sentence is wrong. Strip the source brand name where it appears in copy.
+- NEVER FABRICATE NUMBERS. If the source shows "33% reduction in fine lines after 8 weeks", you emit the German for "33% reduction in fine lines after 8 weeks". Never invent percentages, customer counts, award counts, or retailer counts. Apply the NUMBERS POLICY above to soften specific claims that look implausibly large for ${store.name}.
+- REVIEWS — generate 4–6 short, plausible ${store.lang} reviews tied to product benefits. Each review: a first name, a star rating between 4 and 5, 1–3 short sentences, no implausible claims. Average rating around 4.7–4.8 (one decimal, max 4.9). Do NOT include a review count from the source (no "726.000 Kund:innen", no "12,400+ Bewertungen"). If you must show a count, keep it under 5,000.
+- The only place where you may compose new copy from scratch is when localizing locale-specific claims that must be dropped (US retail-presence) or making minor grammatical adjustments for the target language.
+- CURRENCY: use the price values from productMeta exactly as provided. If productMeta.price reads "€169", emit "€169" — never "$169". Never reference USD or "$" anywhere in the visible copy of a non-English clone. If productMeta.currency is set, prefer that symbol consistently. The Liquid \`{{ product.price | money }}\` filter handles rendering for the buy-box; for any in-copy price reference (comparison cards, hero subtitles), use the productMeta values directly.
+- FINANCING: DROP any "X interest-free payments of $Y", "as low as $Z/mo with Affirm", "Buy now pay later", or similar instalment-financing line. Do NOT localize to Klarna, Afterpay, or Sezzle unless productMeta.financing is explicitly set (it is not, today). On a non-English clone, simply omit any financing copy that appears in the source.
 - SVG icons: use Feather-style stroke icons (stroke=source heading color, stroke-width="1.5", fill="none", viewBox="0 0 24 24"). For small decorative accent icons (checkmarks in the trust bar, stars), use source accent color.
 - IMAGE CROPPING — content-card images (use-case cards, feature cards, diagrams, sleep-position illustrations, comparison images, review photos) MUST use \`aspect-ratio: 4/3; object-fit: contain; background: #fff; padding: 8px;\` — NEVER \`height: Npx; object-fit: cover\`. Source images are frequently infographics with labels, icons, arrows, or text baked in; \`cover\` crops that content off. Only the main hero or dark-hero banner — an edge-to-edge lifestyle photo — may use \`object-fit: cover\` (and even then, prefer a large min-height over a fixed pixel height).
 - BEFORE/AFTER RULE — DO NOT build the before/after / "Real Results" / "Real Skin. Real Change." section yourself. The post-processor builds it deterministically from the labeled image pairs the scraper detected, because you don't reliably know which "before" matches which "after" image. Instead, emit the placeholder marker:
@@ -163,6 +226,18 @@ Return ONLY the raw HTML/CSS/JS code. No markdown code fences. No explanation te
 async function generateFullLiquid(productMeta, sections, screenshotPath, storeId = 'movanella', targetLanguage = null) {
   const storeNames = { movanella: 'Movanella', merivalo: 'Merivalo' };
   const storeName = storeNames[storeId] || 'Movanella';
+
+  // Convert source USD prices to the target market's currency before feeding
+  // them to the AI. The source pages we clone (e.g. Solawave) are USD; the
+  // target shopper (e.g. Movanella DE) sees euros. We mutate productMeta in
+  // place so every downstream consumer (system prompt, user message, fallback
+  // copy) reads the localized number.
+  const currency = currencyForLanguage(targetLanguage);
+  if (currency) {
+    productMeta.price = convertPriceString(productMeta.price, currency);
+    productMeta.compareAtPrice = convertPriceString(productMeta.compareAtPrice, currency);
+    productMeta.currency = currency.code;
+  }
   // Load reference file for the user message context.
   // Per-store — each store has its own design system (Merivalo purple+coral vs
   // Movanella blue+green), and the AI copies patterns from whatever reference
@@ -213,13 +288,24 @@ async function generateFullLiquid(productMeta, sections, screenshotPath, storeId
   // Build a section-by-section blueprint. This is more important than a generic
   // "recommended flow": it tells the generator which source sections appeared,
   // in which order, and which image belonged to each section.
+  //
+  // Shape per entry: headingsText / paragraphsText / bullets are full source
+  // strings (paragraphs capped at ~2500 chars per section, sentence-aware) so
+  // the AI translates them faithfully instead of paraphrasing from a truncated
+  // hint. numbersInSection lists every percentage/integer detected in the
+  // source so the AI can apply NUMBERS POLICY (drop/soften/keep) explicitly.
   const sectionSummary = sections.slice(0, 18).map(s => ({
     sourceIndex: s.index,
     className: s.className,
     layout: s.layout,
     boundingRect: s.boundingRect,
-    headings: s.headings?.slice(0, 4),
-    paragraphs: s.paragraphs?.slice(0, 3).map(p => p.substring(0, 260)),
+    headingsText: (s.headings || [])
+      .map(h => (typeof h === 'string' ? h : h.text || ''))
+      .filter(Boolean)
+      .slice(0, 8),
+    paragraphsText: capParagraphsToTotal((s.paragraphs || []).slice(0, 8), 2500),
+    bullets: (s.bullets || []).slice(0, 12),
+    numbersInSection: extractNumbersFromSection(s),
     images: (s.images || []).slice(0, 4).map(img => ({
       label: labelFor(img),
       src: img.src,
@@ -230,6 +316,30 @@ async function generateFullLiquid(productMeta, sections, screenshotPath, storeId
       isBackground: !!img.isBackground
     }))
   }));
+
+  // Mark the first entry as already rendered by the hero/buy-box if it sits at
+  // the top of the page AND its headings include the product title. The hero
+  // spec in the system prompt already covers title + price + bullets + ATC, so
+  // emitting a body section for the same content produces the duplicate-hero
+  // bug we saw on movanella.com.
+  if (sectionSummary.length > 0) {
+    const first = sectionSummary[0];
+    const isTopOfPage = (first.boundingRect?.top ?? 9999) < 800;
+    const titleTokens = (productMeta.title || '')
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(t => t.length > 3);
+    const headingsLower = first.headingsText.join(' ').toLowerCase();
+    const matchesTitle = titleTokens.length > 0 &&
+      titleTokens.some(tok => headingsLower.includes(tok));
+    if (isTopOfPage && (matchesTitle || first.headingsText.length === 0)) {
+      first.consumedByHero = true;
+    }
+    // Forward sticky-hero hint from the scraper if present
+    if (sections[0]?.stickyHero) {
+      first.stickyHero = true;
+    }
+  }
 
   function pushImage(img, sourceType = 'source image') {
     if (!img?.src || seenSrcs.has(img.src)) return;
@@ -262,7 +372,18 @@ async function generateFullLiquid(productMeta, sections, screenshotPath, storeId
 
   // Flat list of URLs (kept for backwards-compatible consumers below)
   const availableImages = availableImagesWithLabels.map(x => x.src);
-  const sourceDesign = inferSourceDesign(productMeta, sections, availableImagesWithLabels);
+  // Extract a real palette from the source screenshot so the AI uses the
+  // actual source colors instead of inferring them visually (which kept
+  // falling back to Movanella defaults for source pages with non-default
+  // palettes — e.g. Solawave's pink/blush rendering as Movanella green).
+  let palette = null;
+  try {
+    palette = await extractPalette(screenshotPath);
+    console.log(`  [AI] Extracted palette: accent=${palette.accent} dark=${palette.accentDark} surface=${palette.surface}`);
+  } catch (e) {
+    console.log(`  [AI] Palette extraction failed (${e.message}); falling back to inferred design only`);
+  }
+  const sourceDesign = inferSourceDesign(productMeta, sections, availableImagesWithLabels, palette);
   const criticalImages = availableImagesWithLabels.filter(x =>
     /(before[-\s]?after|before and after|day\s*0|day\s*30|real results|comparison chart|dermatologist|guarantee|how to use|easy to use|3-5x|visible results)/i.test(x.label || '')
   );
@@ -1475,7 +1596,50 @@ function escapeHtml(value) {
     .replace(/>/g, '&gt;');
 }
 
-function inferSourceDesign(productMeta, sections, labeledImages) {
+// Cap a list of paragraphs at a total character budget, sentence-aware. Keeps
+// whole paragraphs whenever they fit; for the paragraph that overflows the
+// budget, slices at the last sentence boundary in the prefix that still fits.
+// We do this so the AI sees full source text (better translations) without
+// blowing up the prompt size on long PDPs.
+function capParagraphsToTotal(paragraphs, totalLimit) {
+  const out = [];
+  let used = 0;
+  for (const p of paragraphs) {
+    if (used >= totalLimit) break;
+    const remaining = totalLimit - used;
+    if (p.length <= remaining) {
+      out.push(p);
+      used += p.length;
+      continue;
+    }
+    const slice = p.substring(0, remaining);
+    const lastSentence = Math.max(slice.lastIndexOf('. '), slice.lastIndexOf('! '), slice.lastIndexOf('? '));
+    if (lastSentence > remaining * 0.5) {
+      out.push(slice.substring(0, lastSentence + 1));
+    } else {
+      // No good sentence break — just take what fits.
+      out.push(slice);
+    }
+    break;
+  }
+  return out;
+}
+
+// Pull integer / decimal / percentage tokens from a section's text so the AI
+// can see exactly which numeric claims are present. NUMBERS POLICY in the
+// system prompt then tells the model which to keep, drop, or soften.
+function extractNumbersFromSection(s) {
+  const headingsText = (s.headings || [])
+    .map(h => (typeof h === 'string' ? h : h.text || ''))
+    .filter(Boolean);
+  const text = [...headingsText, ...(s.paragraphs || []), ...(s.bullets || [])].join(' ');
+  const matches = text.match(
+    /\b\d{1,3}(?:[.,]\d{1,2})?\s*%|\b\d{1,3}(?:[,.]\d{3})+(?:[.,]\d{1,2})?\b|\b\d{1,4}(?:[.,]\d{1,2})?\b/g
+  ) || [];
+  return [...new Set(matches)].slice(0, 30);
+}
+
+function inferSourceDesign(productMeta, sections, labeledImages, palette = null) {
   const haystack = [
     productMeta.title,
     productMeta.description,
@@ -1489,6 +1653,41 @@ function inferSourceDesign(productMeta, sections, labeledImages) {
 
   const isSolawaveLike = /solawave|red light|skincare wand|rose gold|radiant renewal|light therapy|galvanic|before[-\s]?after|day\s*30|real results/.test(haystack);
 
+  // If a palette was extracted from the screenshot, prefer those exact hex
+  // values. We keep the genre-specific defaults (e66f8f etc.) only as a
+  // fallback when extraction failed or the extractor returned something
+  // obviously wrong (e.g. all greys, signaling a bad screenshot).
+  const extracted = palette && isUsablePalette(palette) ? palette : null;
+
+  if (extracted) {
+    const accent = extracted.accent;
+    const accentDark = extracted.accentDark;
+    const surface = extracted.surface;
+    const background = extracted.background;
+    const textPrimary = extracted.textPrimary;
+    return {
+      kind: isSolawaveLike ? 'beauty-red-light' : 'source-extracted',
+      accent,
+      dark: accentDark,
+      soft: background,
+      cream: surface,
+      textPrimary,
+      palette: extracted,
+      instructions: [
+        'Source page palette extracted from screenshot — use these exact hex values:',
+        `- accent (buttons, stat rings, CTA, badges, links): ${accent}`,
+        `- accent dark (hover/active, dark text-on-light): ${accentDark}`,
+        `- background (page sections, soft fill behind cards): ${background}`,
+        `- surface (cards, hero panel): ${surface}`,
+        `- text primary (headings, body): ${textPrimary}`,
+        'Do NOT substitute Movanella defaults. Do NOT use green (#07941a/#16a34a/#22c55e) or Movanella navy unless the extracted palette literally contains those values.',
+        'For shadows and dividers, use a low-opacity tone of textPrimary.',
+        'Composite source images (before/after, comparison charts, dermatologist cards, guarantee graphics) must be used as complete images, not split into generated cards.'
+      ].join('\n')
+    };
+  }
+
+  // No palette extracted — use the existing genre heuristic.
   if (isSolawaveLike) {
     return {
       kind: 'beauty-red-light',
@@ -1515,6 +1714,22 @@ function inferSourceDesign(productMeta, sections, labeledImages) {
   };
 }
 
+// Reject palettes where every channel is essentially equal across all 5
+// slots (i.e. all greys) — that means the screenshot didn't decode or the
+// page rendered on a blank canvas. Fall back to the heuristic in that case.
+function isUsablePalette(p) {
+  if (!p?.accent) return false;
+  const hexes = [p.accent, p.accentDark, p.background, p.surface, p.textPrimary];
+  const allGrey = hexes.every(h => {
+    const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(h);
+    if (!m) return false;
+    const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
+    const span = Math.max(r, g, b) - Math.min(r, g, b);
+    return span < 12;
+  });
+  return !allGrey;
+}
+
 // Hide Horizon's default product-information main section. Now that the AI
 // is building the full Solawave-style PDP — including the hero, gallery,
 // variant picker, and a real /cart/add form — Horizon's stock buy-box would
@@ -1539,13 +1754,20 @@ function injectHorizonAtcOverride(liquid /*, sourceDesign */) {
 }
 
 function applySourcePaletteGuard(liquid, sourceDesign) {
-  if (sourceDesign.kind !== 'beauty-red-light') return liquid;
+  // Apply to every clone where we have a non-default accent — not just the
+  // beauty-red-light heuristic. The AI keeps falling back to the Movanella
+  // defaults (green / navy) even when an extracted palette is in the prompt,
+  // so this is the last-mile safety net.
+  if (!sourceDesign?.accent) return liquid;
+  if (sourceDesign.kind === 'source-generic') return liquid; // no extracted palette to enforce
   const replacements = [
     [/#07941a/gi, sourceDesign.accent],
     [/#16a34a/gi, sourceDesign.accent],
     [/#22c55e/gi, sourceDesign.accent],
+    [/#15803d/gi, sourceDesign.accent],
     [/#1b2d5b/gi, sourceDesign.dark],
     [/#0f172a/gi, sourceDesign.dark],
+    [/#1e293b/gi, sourceDesign.dark],
     [/#f8f9ff/gi, sourceDesign.soft],
     [/#e8f5e9/gi, sourceDesign.soft]
   ];
@@ -1558,7 +1780,7 @@ function applySourcePaletteGuard(liquid, sourceDesign) {
     });
   }
   if (changed > 0) {
-    console.log(`  [AI] Applied source palette guard (${changed} color replacement(s))`);
+    console.log(`  [AI] Applied source palette guard (${changed} color replacement(s) → ${sourceDesign.accent}/${sourceDesign.dark})`);
   }
   return out;
 }

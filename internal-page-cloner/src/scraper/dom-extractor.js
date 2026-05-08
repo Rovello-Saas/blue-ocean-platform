@@ -57,6 +57,21 @@ async function extractSections(page) {
       };
     }
 
+    // Detect whether the section uses sticky scroll for one of its columns.
+    // Solawave-style hero pins the gallery on the left while the right column
+    // scrolls through trust content. We look for any descendant img/figure
+    // wrapper with position: sticky inside the section.
+    function hasStickyChild(el) {
+      const candidates = el.querySelectorAll('div, figure, section, aside');
+      for (const node of candidates) {
+        try {
+          const pos = window.getComputedStyle(node).position;
+          if (pos === 'sticky' || pos === '-webkit-sticky') return true;
+        } catch (e) {}
+      }
+      return false;
+    }
+
     // Resolve the REAL image URL, preferring non-placeholder sources.
     // Many lazy-load libs (alcedohealth, various Shopify themes, PageFly, etc.) put
     // a `data:image/gif;base64,...` placeholder in `src` until the image scrolls into
@@ -168,6 +183,22 @@ async function extractSections(page) {
       return paragraphs;
     }
 
+    function extractBullets(el) {
+      const bullets = [];
+      const liElements = el.querySelectorAll('li');
+      liElements.forEach(li => {
+        // Skip <li>s that are themselves navigation residue or contain a nested
+        // list (those are usually menus, not content bullets).
+        if (li.querySelector('ul, ol, nav')) return;
+        const text = li.textContent?.trim();
+        // Bullets tend to be 4-280 chars; skip 1-3 char list markers and giant
+        // pasted paragraphs that aren't really list items.
+        if (!text || text.length < 4 || text.length > 280) return;
+        bullets.push(text);
+      });
+      return bullets;
+    }
+
     // Find content sections - try common container patterns
     const candidateSelectors = [
       'section',
@@ -215,9 +246,10 @@ async function extractSections(page) {
       const images = extractImages(el);
       const headings = extractHeadings(el);
       const paragraphs = extractParagraphs(el);
+      const bullets = extractBullets(el);
 
       // Skip sections with no meaningful content
-      if (images.length === 0 && headings.length === 0 && paragraphs.length === 0) continue;
+      if (images.length === 0 && headings.length === 0 && paragraphs.length === 0 && bullets.length === 0) continue;
 
       // Get trimmed HTML (limit to 3000 chars to avoid huge payloads)
       let html = el.outerHTML;
@@ -236,9 +268,11 @@ async function extractSections(page) {
           width: Math.round(rect.width),
           height: Math.round(rect.height)
         },
+        stickyHero: hasStickyChild(el) && images.length > 0 && rect.top + window.scrollY < 1200,
         images,
         headings,
         paragraphs,
+        bullets,
         html
       });
     }

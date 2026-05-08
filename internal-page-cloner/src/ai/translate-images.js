@@ -179,12 +179,31 @@ function httpsJson(options, body = null) {
  * @param {string} promptAddition - Optional extra sentences appended to the base
  *   prompt. The self-review loop uses this to feed in corrections discovered
  *   from the canary image.
+ * @param {object} opts - { faceRefUrl?, extraInstruction? }
+ *   faceRefUrl: when set, image_urls becomes [imageUrl, faceRefUrl] and an
+ *     IDENTITY SWAP block is appended so the model replaces visible people
+ *     in imageUrl with the person from faceRefUrl. Used for
+ *     lifestyle-with-person images so every photo on the page shows the
+ *     same model.
+ *   extraInstruction: per-purpose extra prompt fragment from image-policy.js
+ *     (e.g. "freeze comparison-grid layout").
  */
-async function translateImageWithFal(imageUrl, targetLanguage, brandName, falApiKey, retries = 2, promptAddition = '', costTracker = null) {
+async function translateImageWithFal(imageUrl, targetLanguage, brandName, falApiKey, retries = 2, promptAddition = '', costTracker = null, opts = {}) {
   const basePrompt = buildTranslatePrompt(targetLanguage, brandName);
-  const prompt = promptAddition
-    ? `${basePrompt}\n\nADDITIONAL GUIDANCE (from QA review of a previous render — obey strictly):\n${promptAddition}`
-    : basePrompt;
+  let prompt = basePrompt;
+  if (opts.extraInstruction) {
+    prompt += `\n\nPER-IMAGE GUIDANCE:\n${opts.extraInstruction}`;
+  }
+  if (opts.faceRefUrl) {
+    prompt += `\n\nIDENTITY SWAP. image_urls[0] is the source image to edit. image_urls[1] shows the target person. Replace any visible person in image_urls[0] with the person from image_urls[1]. Preserve pose, framing, lighting, wardrobe, expression, body proportions, and overall composition exactly. Do not change the background, props, products, or anything else. The face/identity is the ONLY visual change beyond text translation and brand replacement.`;
+  }
+  if (promptAddition) {
+    prompt += `\n\nADDITIONAL GUIDANCE (from QA review of a previous render — obey strictly):\n${promptAddition}`;
+  }
+
+  const imageUrlsForRequest = opts.faceRefUrl
+    ? [imageUrl, opts.faceRefUrl]
+    : [imageUrl];
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
@@ -195,7 +214,7 @@ async function translateImageWithFal(imageUrl, targetLanguage, brandName, falApi
         headers: { 'Authorization': `Key ${falApiKey}` },
       }, {
         prompt,
-        image_urls: [imageUrl],
+        image_urls: imageUrlsForRequest,
         aspect_ratio: 'auto',
         num_images: 1,
         output_format: 'jpeg',
@@ -273,26 +292,36 @@ async function translateImageWithFal(imageUrl, targetLanguage, brandName, falApi
  * Translate an array of image URLs to the target language.
  * Returns array of { buffer, originalUrl } — buffer is null if translation failed.
  *
- * The first image acts as a "canary": we translate it, ask Claude to review the
- * output against a QA checklist, and if problems are found (garbled brand text,
- * leftover English words, unit-conversion misses, etc.), we append Claude's
- * suggested prompt-tightening and retry the canary — up to 2 retries — BEFORE
- * batching the remaining images. The refined prompt is then used for 2..N.
+ * The first image acts as a "canary": we translate it, ask Claude to review
+ * the output against a QA checklist, and if problems are found we tighten the
+ * prompt before processing the remaining images. The same review then runs on
+ * every subsequent image — not just the canary — so a regression on image 5
+ * doesn't ship a Solawave-branded asset to live.
  *
- * This calibrates the prompt once per job so we don't waste 15× renders on a
- * prompt that was going to fail the same way every time.
+ * On QA failure after 2 nano-banana retries, we fall back to Google Imagen
+ * (different model, different failure modes). Only if that also fails do we
+ * mark the result as `rejected: true` for the caller.
  *
  * @param {string[]} imageUrls - Source image URLs
  * @param {string} targetLanguage - Language code: 'en', 'de', 'fr', 'es', 'it', 'nl', or 'same' (brand-only)
  * @param {string} brandName - Target brand name to replace any source brand with (e.g. 'Merivalo')
  * @param {string} falApiKey - fal.ai API key
  * @param {function} onProgress - Optional callback(index, total)
- * @param {object} opts - { selfReview: boolean, maxReviewRetries: number }
+ * @param {object} opts - { selfReview, maxReviewRetries, policies, faceRefUrl, googleApiKey, costTracker }
+ *   policies: Map<url, policy> from image-policy.js. Per-image hints —
+ *     skip translation, drop image entirely, apply face-swap, freeze layout.
+ *   faceRefUrl: URL of the per-job reference face. Passed as image_urls[1]
+ *     when policy.faceSwap is true so every lifestyle photo shows one model.
+ *   googleApiKey: GOOGLE_IMAGEN_API_KEY for the Imagen fallback. If absent,
+ *     we skip Imagen and proceed straight to rejected:true.
  */
 async function translateProductImages(imageUrls, targetLanguage, brandName, falApiKey, onProgress, opts = {}) {
   const selfReview = opts.selfReview !== false; // default ON
   const maxReviewRetries = opts.maxReviewRetries ?? 2;
   const costTracker = opts.costTracker || null;
+  const policies = opts.policies || new Map();
+  const faceRefUrl = opts.faceRefUrl || null;
+  const googleApiKey = opts.googleApiKey || process.env.GOOGLE_IMAGEN_API_KEY || process.env.GEMINI_API_KEY || null;
 
   // Lazy-require to avoid circular-import surprises
   const { reviewTranslatedImage } = require('./review-translated-image');
@@ -302,45 +331,93 @@ async function translateProductImages(imageUrls, targetLanguage, brandName, falA
 
   for (let i = 0; i < imageUrls.length; i++) {
     const url = imageUrls[i];
+    const policy = policies.get(url) || {};
     if (onProgress) onProgress(i, imageUrls.length);
-    try {
-      console.log(`  [translate] Image ${i + 1}/${imageUrls.length}: ${url.substring(0, 80)}...`);
-      let buffer = await translateImageWithFal(url, targetLanguage, brandName, falApiKey, 2, calibratedPromptAddition, costTracker);
 
-      // Self-review only the canary (first image). Later images use the
-      // calibrated prompt from this step.
-      if (selfReview && i === 0) {
+    // Per-policy: skip entirely (e.g. before-after handled by post-processor,
+    // or logo-strip already filtered out of the AI's available-images list).
+    if (policy.skip) {
+      console.log(`  [translate] Image ${i + 1}/${imageUrls.length}: SKIP (${policy.skipReason || 'policy.skip'})`);
+      results.push({ buffer: null, originalUrl: url, skipped: true });
+      continue;
+    }
+
+    const perImageOpts = {
+      faceRefUrl: policy.faceSwap ? faceRefUrl : null,
+      extraInstruction: policy.extraInstruction || '',
+    };
+
+    try {
+      console.log(`  [translate] Image ${i + 1}/${imageUrls.length}${policy.faceSwap ? ' [+face-swap]' : ''}: ${url.substring(0, 80)}...`);
+      let buffer = await translateImageWithFal(url, targetLanguage, brandName, falApiKey, 2, calibratedPromptAddition, costTracker, perImageOpts);
+
+      // Per-image self-review. The canary (image 1) is allowed to MUTATE the
+      // calibratedPromptAddition so its lessons help every subsequent image;
+      // images 2..N also re-review but only retry — they don't expand the
+      // calibration further (would ratchet the prompt too aggressively).
+      if (selfReview) {
         let attempt = 0;
-        while (attempt < maxReviewRetries) {
-          console.log(`  [translate] Reviewing canary (image 1) for quality issues...`);
+        const maxRetries = i === 0 ? maxReviewRetries : 1;
+        while (attempt < maxRetries) {
           const verdict = await reviewTranslatedImage(buffer, targetLanguage, brandName);
 
           if (verdict.acceptable) {
-            console.log(`  [translate] Canary review: PASS`);
+            if (i === 0) console.log(`  [translate] Canary review: PASS`);
             break;
           }
 
-          console.log(`  [translate] Canary review: FAIL — ${verdict.issues.length} issue(s):`);
+          console.log(`  [translate] Image ${i + 1} review: FAIL — ${verdict.issues.length} issue(s):`);
           verdict.issues.slice(0, 4).forEach(iss => console.log(`    • ${iss}`));
 
           if (!verdict.promptAddition) {
-            console.log(`  [translate] Reviewer returned no actionable fix — keeping current render`);
+            console.log(`  [translate] Reviewer returned no actionable fix — moving to fallback`);
             break;
           }
 
           attempt++;
-          // Accumulate so each retry builds on prior guidance
-          calibratedPromptAddition = calibratedPromptAddition
-            ? `${calibratedPromptAddition}\n${verdict.promptAddition}`
-            : verdict.promptAddition;
+          if (i === 0) {
+            calibratedPromptAddition = calibratedPromptAddition
+              ? `${calibratedPromptAddition}\n${verdict.promptAddition}`
+              : verdict.promptAddition;
+          }
+          const retryAddition = i === 0 ? calibratedPromptAddition : verdict.promptAddition;
 
-          console.log(`  [translate] Retry ${attempt}/${maxReviewRetries} with tightened prompt...`);
-          console.log(`    Added guidance: ${verdict.promptAddition.substring(0, 180)}${verdict.promptAddition.length > 180 ? '…' : ''}`);
-
-          buffer = await translateImageWithFal(url, targetLanguage, brandName, falApiKey, 2, calibratedPromptAddition, costTracker);
+          console.log(`  [translate] Retry ${attempt}/${maxRetries} with tightened prompt...`);
+          buffer = await translateImageWithFal(url, targetLanguage, brandName, falApiKey, 2, retryAddition, costTracker, perImageOpts);
         }
 
-        if (calibratedPromptAddition) {
+        // If still failing after retries, try Google Imagen as a fallback.
+        const finalVerdict = await reviewTranslatedImage(buffer, targetLanguage, brandName);
+        if (!finalVerdict.acceptable && googleApiKey) {
+          console.log(`  [translate] Image ${i + 1} still failing QA after nano-banana retries — falling back to Google Imagen`);
+          try {
+            const fallbackPrompt = buildTranslatePrompt(targetLanguage, brandName) +
+              (perImageOpts.extraInstruction ? `\n\nPER-IMAGE GUIDANCE:\n${perImageOpts.extraInstruction}` : '') +
+              (calibratedPromptAddition ? `\n\nADDITIONAL GUIDANCE:\n${calibratedPromptAddition}` : '');
+            const imagenBuffer = await translateImageWithImagen(url, fallbackPrompt, googleApiKey, costTracker);
+            const imagenVerdict = await reviewTranslatedImage(imagenBuffer, targetLanguage, brandName);
+            if (imagenVerdict.acceptable) {
+              console.log(`  [translate] Imagen fallback PASS for image ${i + 1}`);
+              buffer = imagenBuffer;
+            } else {
+              console.warn(`  [translate] Imagen fallback also failed QA — marking image ${i + 1} as rejected`);
+              results.push({ buffer: null, originalUrl: url, rejected: true, reason: 'qa-fail-both-models' });
+              continue;
+            }
+          } catch (imagenErr) {
+            console.warn(`  [translate] Imagen fallback errored (${imagenErr.message?.substring(0, 100)}) — marking image ${i + 1} as rejected`);
+            results.push({ buffer: null, originalUrl: url, rejected: true, reason: 'imagen-error' });
+            continue;
+          }
+        } else if (!finalVerdict.acceptable) {
+          // No Imagen key configured — log loudly and fall back to whatever
+          // nano-banana produced. The downstream upload will still ship it,
+          // but the rejected:false flag makes this distinguishable from a
+          // genuinely-good translation.
+          console.warn(`  [translate] Image ${i + 1} failed QA and no GOOGLE_IMAGEN_API_KEY set — shipping last nano-banana attempt`);
+        }
+
+        if (i === 0 && calibratedPromptAddition) {
           console.log(`  [translate] Using calibrated prompt for remaining ${imageUrls.length - 1} image(s)`);
         }
       }
@@ -348,11 +425,173 @@ async function translateProductImages(imageUrls, targetLanguage, brandName, falA
       results.push({ buffer, originalUrl: url });
       console.log(`  [translate] Image ${i + 1} done (${(buffer.length / 1024).toFixed(0)}KB)`);
     } catch (e) {
-      console.warn(`  [translate] Image ${i + 1} failed (using original): ${e.message?.substring(0, 100)}`);
-      results.push({ buffer: null, originalUrl: url });
+      console.warn(`  [translate] Image ${i + 1} translation errored: ${e.message?.substring(0, 100)}`);
+      // Try Imagen as a last-resort even on hard error from nano-banana.
+      if (googleApiKey) {
+        try {
+          const fallbackPrompt = buildTranslatePrompt(targetLanguage, brandName) +
+            (perImageOpts.extraInstruction ? `\n\nPER-IMAGE GUIDANCE:\n${perImageOpts.extraInstruction}` : '');
+          const imagenBuffer = await translateImageWithImagen(url, fallbackPrompt, googleApiKey, costTracker);
+          console.log(`  [translate] Imagen recovered image ${i + 1}`);
+          results.push({ buffer: imagenBuffer, originalUrl: url });
+          continue;
+        } catch (imagenErr) {
+          console.warn(`  [translate] Imagen also errored on image ${i + 1}: ${imagenErr.message?.substring(0, 100)}`);
+        }
+      }
+      results.push({ buffer: null, originalUrl: url, rejected: true, reason: 'fal-and-imagen-error' });
     }
   }
   return results;
 }
 
-module.exports = { translateProductImages, LANGUAGE_NAMES };
+/**
+ * Generate one reference face per job. Returned as a public URL (fal.ai's CDN
+ * already hosts the image). The same URL is then passed as the second
+ * image_urls entry on every face-swap call in the job, so every lifestyle
+ * photo on the cloned page shows the same model.
+ *
+ * Uses fal.ai's flux/dev text-to-image, which is cheap and produces
+ * reasonable photo-realistic portraits.
+ */
+async function generateJobFace(falApiKey, options = {}) {
+  const demographics = options.demographics || '30-year-old European woman';
+  const costTracker = options.costTracker || null;
+  const prompt = `Photo of a ${demographics}, soft natural studio lighting, plain neutral background, looking directly at the camera, neutral relaxed expression, photorealistic, sharp focus, high quality, head and upper-shoulders portrait, no jewelry, no logo, no text in image.`;
+
+  const res = await httpsJson({
+    hostname: 'fal.run',
+    path: '/fal-ai/flux/dev',
+    method: 'POST',
+    headers: { 'Authorization': `Key ${falApiKey}` },
+  }, {
+    prompt,
+    image_size: 'square_hd',
+    num_inference_steps: 28,
+    num_images: 1,
+    enable_safety_checker: true,
+  });
+
+  if (res.status !== 200) {
+    throw new Error(`generateJobFace: fal.ai returned ${res.status}: ${JSON.stringify(res.data).substring(0, 200)}`);
+  }
+
+  // Synchronous response shape
+  let url = res.data?.images?.[0]?.url;
+
+  // Queue response — poll for completion
+  if (!url && res.data?.request_id) {
+    const requestId = res.data.request_id;
+    for (let poll = 0; poll < 60; poll++) {
+      await new Promise(r => setTimeout(r, 2000));
+      const statusRes = await httpsJson({
+        hostname: 'queue.fal.run',
+        path: `/fal-ai/flux/dev/requests/${requestId}/status`,
+        method: 'GET',
+        headers: { 'Authorization': `Key ${falApiKey}` },
+      });
+      if (statusRes.data?.status === 'COMPLETED') {
+        const resultRes = await httpsJson({
+          hostname: 'queue.fal.run',
+          path: `/fal-ai/flux/dev/requests/${requestId}`,
+          method: 'GET',
+          headers: { 'Authorization': `Key ${falApiKey}` },
+        });
+        url = resultRes.data?.images?.[0]?.url;
+        break;
+      } else if (statusRes.data?.status === 'FAILED') {
+        throw new Error('generateJobFace: fal.ai job FAILED: ' + JSON.stringify(statusRes.data).substring(0, 200));
+      }
+    }
+  }
+
+  if (!url) {
+    throw new Error('generateJobFace: no image URL in response');
+  }
+
+  if (costTracker) {
+    costTracker.recordFal({
+      model: 'flux/dev',
+      numImages: 1,
+      context: 'job face reference',
+    });
+  }
+
+  console.log(`  [face] Generated job face: ${url.substring(0, 100)}...`);
+  return url;
+}
+
+/**
+ * Google Imagen fallback for image translation. Used when nano-banana-pro
+ * fails QA two times in a row — Imagen's edit endpoint produces a different
+ * style of error so often one model picks up the slack for the other.
+ *
+ * Uses @google/genai (already installed). The model is "imagen-3.0-capability"
+ * or whatever the current edit-capable Imagen variant is.
+ */
+async function translateImageWithImagen(imageUrl, prompt, googleApiKey, costTracker = null) {
+  if (!googleApiKey) {
+    throw new Error('translateImageWithImagen: GOOGLE_IMAGEN_API_KEY not set');
+  }
+  let GoogleGenAI;
+  try {
+    ({ GoogleGenAI } = require('@google/genai'));
+  } catch (e) {
+    throw new Error('translateImageWithImagen: @google/genai not installed');
+  }
+
+  const ai = new GoogleGenAI({ apiKey: googleApiKey });
+
+  // Fetch source image bytes for the edit-style request
+  const tmpPath = path.join(require('os').tmpdir(), `imagen-src-${Date.now()}.jpg`);
+  await download(imageUrl, tmpPath);
+  const srcBytes = fs.readFileSync(tmpPath);
+  fs.unlinkSync(tmpPath);
+  const srcBase64 = srcBytes.toString('base64');
+
+  // Imagen edit/customization. The exact endpoint shape depends on which
+  // version the SDK exposes; we use generateContent on a multimodal model
+  // ("gemini-2.5-flash-image" / "imagen-3" depending on availability) and
+  // fall back to text-only response if image generation isn't supported.
+  const modelName = 'gemini-2.5-flash-image';
+  const response = await ai.models.generateContent({
+    model: modelName,
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          { inlineData: { mimeType: 'image/jpeg', data: srcBase64 } },
+          { text: prompt },
+        ],
+      },
+    ],
+  });
+
+  // Extract image from response. Gemini multimodal returns parts; one of them
+  // will be inlineData with the generated image.
+  const parts = response?.candidates?.[0]?.content?.parts || [];
+  for (const part of parts) {
+    if (part.inlineData?.data) {
+      const buf = Buffer.from(part.inlineData.data, 'base64');
+      if (costTracker) {
+        costTracker.recordGoogle?.({
+          model: modelName,
+          numImages: 1,
+          context: 'imagen fallback edit',
+        });
+      }
+      return buf;
+    }
+  }
+
+  throw new Error('translateImageWithImagen: no image in Gemini response');
+}
+
+module.exports = {
+  translateProductImages,
+  translateImageWithFal,
+  translateImageWithImagen,
+  generateJobFace,
+  buildTranslatePrompt,
+  LANGUAGE_NAMES,
+};
