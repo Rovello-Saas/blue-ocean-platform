@@ -50,10 +50,11 @@ function fetchImageBuffer(url, maxBytes = 8 * 1024 * 1024) {
 
 const { scrapePage } = require('../scraper/browser');
 const { extractSections, extractProductMeta } = require('../scraper/dom-extractor');
-const { analyzeImages } = require('../scraper/image-analyzer');
+const { analyzeImages, classifyImagePurposes } = require('../scraper/image-analyzer');
+const { policyFor } = require('../ai/image-policy');
 const { dedupeByPerceptualHash } = require('../scraper/dedupe-images');
 const { generateFullLiquid } = require('../ai/generate-content');
-const { translateProductImages, LANGUAGE_NAMES } = require('../ai/translate-images');
+const { translateProductImages, generateJobFace, LANGUAGE_NAMES } = require('../ai/translate-images');
 const { translateTitle, translateDescription, generateBulletDescription } = require('../ai/translate-text');
 const { getAllBlocks } = require('../blocks/library');
 const {
@@ -468,6 +469,79 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
       console.warn(`[${jobId}]   Perceptual dedup failed (keeping all ${productMeta.images.length} images): ${e.message}`);
     }
 
+    // ── Image classification (purpose) ──
+    // Classify every image so the translate step can apply the right transform
+    // (face-swap on lifestyle photos, freeze-layout on comparison composites,
+    // skip-and-drop on press-logo strips). Also drops logo-strip images from
+    // productMeta.images BEFORE liquid generation so the AI never references
+    // them in the rendered page.
+    const classificationInput = [];
+    for (const section of sections) {
+      const sectionHeadings = (section.headings || []).map(h => (typeof h === 'string' ? h : h.text || ''));
+      for (const img of (section.images || [])) {
+        classificationInput.push({
+          src: img.src,
+          alt: img.alt,
+          displayWidth: img.displayWidth,
+          displayHeight: img.displayHeight,
+          naturalWidth: img.naturalWidth,
+          naturalHeight: img.naturalHeight,
+          sectionHeadings
+        });
+      }
+    }
+    for (const img of productMeta.images) {
+      classificationInput.push({
+        src: img.src,
+        alt: img.alt,
+        displayWidth: img.displayWidth,
+        displayHeight: img.displayHeight,
+        naturalWidth: img.naturalWidth,
+        naturalHeight: img.naturalHeight,
+        sectionHeadings: []
+      });
+    }
+    const classifications = classifyImagePurposes(classificationInput);
+    const policiesByUrl = new Map();
+    for (const [src, purpose] of classifications) {
+      policiesByUrl.set(src, { ...policyFor(purpose), purpose });
+    }
+
+    const droppedFromOutput = [];
+    productMeta.images = productMeta.images.filter(img => {
+      const p = policiesByUrl.get(img.src);
+      if (p?.dropFromOutput) {
+        droppedFromOutput.push({ src: img.src, purpose: p.purpose });
+        return false;
+      }
+      return true;
+    });
+    // Also strip logo-strip images from each section's image list so the AI's
+    // SOURCE SECTION BLUEPRINT doesn't surface them either. Tag survivors
+    // with purpose so downstream consumers can read it without re-classifying.
+    for (const section of sections) {
+      const filtered = [];
+      for (const img of (section.images || [])) {
+        const p = policiesByUrl.get(img.src);
+        if (p?.dropFromOutput) continue;
+        if (p) img.purpose = p.purpose;
+        filtered.push(img);
+      }
+      section.images = filtered;
+    }
+
+    const purposeCounts = {};
+    for (const purpose of classifications.values()) {
+      purposeCounts[purpose] = (purposeCounts[purpose] || 0) + 1;
+    }
+    console.log(`[${jobId}]   Image purpose breakdown: ${JSON.stringify(purposeCounts)} (${droppedFromOutput.length} dropped as logo-strip)`);
+
+    fs.writeFileSync(path.join(jobDir, 'image-classification.json'), JSON.stringify({
+      purposeCounts,
+      droppedFromOutput,
+      perImage: Array.from(classifications.entries()).map(([src, purpose]) => ({ src, purpose }))
+    }, null, 2));
+
     // Derive handle from URL, make unique if already exists
     let handle = new URL(url).pathname.split('/').filter(Boolean).pop() || 'product';
     try {
@@ -751,6 +825,38 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
         console.warn(`[${jobId}] FAL_API_KEY not found — uploading originals (no Nano Banana edits)`);
         translated = allImageUrls.map(u => ({ originalUrl: u, buffer: null }));
       } else {
+        // Generate one reference face per job IF any image needs face-swap.
+        // Same face is reused across every face-swap call, so the cloned
+        // page shows one consistent model instead of random AI faces.
+        let jobFaceUrl = null;
+        const faceSwapCount = allImageUrls.filter(u => policiesByUrl.get(u)?.faceSwap).length;
+        if (faceSwapCount > 0) {
+          try {
+            jobFaceUrl = await generateJobFace(falApiKey, { costTracker });
+            console.log(`[${jobId}]   Job face generated for ${faceSwapCount} face-swap image(s)`);
+          } catch (e) {
+            console.warn(`[${jobId}]   Job face generation failed (${e.message?.substring(0, 100)}) — face-swap will use prompt-only fallback`);
+          }
+        }
+
+        // Resolve Google Imagen / Gemini API key (fallback model when
+        // nano-banana QA fails). The same key works for both names — try
+        // GOOGLE_IMAGEN_API_KEY first, fall back to GEMINI_API_KEY which is
+        // what the rest of the platform already uses.
+        let googleApiKey = process.env.GOOGLE_IMAGEN_API_KEY || process.env.GEMINI_API_KEY || '';
+        if (!googleApiKey) {
+          try {
+            const envContent = require('fs').readFileSync(require('path').join(__dirname, '../../.env'), 'utf-8');
+            const m = envContent.match(/^GOOGLE_IMAGEN_API_KEY=(.+)$/m) || envContent.match(/^GEMINI_API_KEY=(.+)$/m);
+            googleApiKey = m ? m[1].trim() : '';
+          } catch (e) {
+            googleApiKey = '';
+          }
+        }
+        if (!googleApiKey) {
+          console.log(`[${jobId}]   No GEMINI_API_KEY / GOOGLE_IMAGEN_API_KEY set — Imagen fallback disabled`);
+        }
+
         console.log(`[${jobId}] Step 3b: Processing ${allImageUrls.length} images (${modeLabel})...`);
         translated = await translateProductImages(
           allImageUrls,
@@ -763,7 +869,12 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
               updateJob(jobId, { progress: pct });
             }
           },
-          { costTracker }
+          {
+            costTracker,
+            policies: policiesByUrl,
+            faceRefUrl: jobFaceUrl,
+            googleApiKey
+          }
         );
       }
 
@@ -782,9 +893,25 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
         return 'jpg';
       };
 
+      const rejectedSourceUrls = new Set();
       for (let i = 0; i < translated.length; i++) {
         const item = translated[i];
         const isGallery = i < galleryCount;
+
+        // Strict-drop on rejected: do not upload the source asset (which still
+        // shows English text + source-brand watermark). Track for HTML cleanup
+        // below so the source URL doesn't leak into the live page either.
+        if (item.rejected) {
+          console.log(`  [Shopify] Rejected image ${i + 1}/${translated.length}: ${item.reason || 'qa-fail'} — skipping upload`);
+          rejectedSourceUrls.add(item.originalUrl);
+          continue;
+        }
+        // Skipped (e.g. before-after composite handled by post-processor):
+        // leave the source URL in place — the post-processor will rewrite it.
+        if (item.skipped) {
+          continue;
+        }
+
         try {
           if (isGallery && productId) {
             // Gallery: visible in product card
@@ -840,6 +967,26 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
           const where = isGallery ? 'gallery' : 'content';
           console.warn(`  [Shopify] ${where} image ${i + 1} upload failed: ${imgErr.message?.substring(0, 120)}`);
         }
+      }
+    }
+
+    // Strip rejected images from the liquid before any URL rewriting so we
+    // don't leak source-branded photos to the live page. Rejected = both
+    // nano-banana and Imagen failed to produce an acceptable translation;
+    // shipping the source asset would put English text and the source brand
+    // wordmark on a Movanella page, which is what we're explicitly avoiding.
+    if (rejectedSourceUrls && rejectedSourceUrls.size > 0) {
+      let stripped = 0;
+      for (const rejUrl of rejectedSourceUrls) {
+        const escaped = rejUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/&/g, '(?:&|&amp;)');
+        // Drop entire <img>/<figure>/<picture> blocks that reference the URL.
+        const figureRe = new RegExp(`<figure\\b[^>]*>(?:(?!<\\/figure>)[\\s\\S])*?${escaped}(?:(?!<\\/figure>)[\\s\\S])*?<\\/figure>`, 'gi');
+        liquidContent = liquidContent.replace(figureRe, () => { stripped++; return '<!-- image rejected: source brand or untranslatable -->'; });
+        const imgRe = new RegExp(`<img\\b[^>]*${escaped}[^>]*>`, 'gi');
+        liquidContent = liquidContent.replace(imgRe, () => { stripped++; return '<!-- image rejected -->'; });
+      }
+      if (stripped > 0) {
+        console.log(`[${jobId}]   Stripped ${stripped} rejected image reference(s) from liquid`);
       }
     }
 
