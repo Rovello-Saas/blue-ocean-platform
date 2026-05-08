@@ -802,6 +802,14 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
       }
     }
 
+    // Track which source URLs the translate step rejected (failed both
+    // nano-banana and Imagen QA) so we can strip the corresponding <img>
+    // tags from the AI's liquid below — preventing untranslated source
+    // assets from ending up on the live page. Must be declared OUTSIDE
+    // the `if (allImageUrls.length > 0)` block since the post-process
+    // that consumes it runs unconditionally.
+    const rejectedSourceUrls = new Set();
+
     if (allImageUrls.length > 0) {
       if (targetLanguage) {
         updateJob(jobId, {
@@ -893,7 +901,6 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
         return 'jpg';
       };
 
-      const rejectedSourceUrls = new Set();
       for (let i = 0; i < translated.length; i++) {
         const item = translated[i];
         const isGallery = i < galleryCount;

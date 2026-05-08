@@ -103,7 +103,7 @@ You will receive a screenshot and scraped data from a source product page. Your 
 
 This is a page clone, not a generic ${store.name} template.
 - Preserve the source page's color palette from the screenshot and image assets. If the source page is blush/pink/rose/cream, use blush/pink/rose/cream. If it is blue, use blue. Do NOT force ${store.name}'s default colors.
-- Preserve the source page's section sequence and visual concepts as much as possible: product hero, benefits, science/technology explanation, how-to-use, results/statistics, comparison chart, before/after proof, expert/social proof, guarantee, FAQ.
+- Preserve the source page's BODY section sequence and visual concepts (the hero/gallery/buy-box is rendered separately by Movanella above your output and is OUT of scope): benefits grid, science/technology explanation, how-to-use, results/statistics, comparison chart, before/after proof, expert/social proof, guarantee, FAQ.
 - Preserve source image compositions. If an image is already a before/after composite, comparison chart, infographic, dermatologist card, quote card, or guarantee graphic, use it as ONE whole image. Do NOT split it into separate "before" and "after" images. Do NOT recreate it as unrelated cards.
 - Keep the look AND copy close to the source. Translate text faithfully into ${store.lang}. Do NOT paraphrase, condense, or "improve" the source's wording. Strip any reference to the source brand by name.
 
@@ -147,42 +147,41 @@ Your output must be a complete file with these parts:
 2. \`<div class="PREFIX-wrap">\` containing all sections in source order
 3. \`<script>\` block for any interactivity (FAQ accordion, before/after slider, carousels)
 
-## YOU BUILD THE COMPLETE PDP — INCLUDING THE BUY-BOX HERO
+## YOU BUILD THE BODY SECTIONS — NOT THE HERO
 
-Shopify Horizon's stock product-information section is HIDDEN on this template via CSS (\`#shopify-section-main { display: none }\`). Your output is the entire visible product page. Build it to match the SOURCE PAGE'S layout as closely as possible — that means starting with the hero/buy-box at the top, not with a content strip.
+The Movanella product hero (gallery + product title + price + bundle picker + add-to-cart) renders ABOVE your output, from the store's existing Horizon theme + bundle app. Do NOT recreate it. Your output starts at the FIRST BODY SECTION (eyebrow, benefits grid, science explanation, comparison, before/after, expert proof, FAQ, etc).
 
-REQUIRED FIRST SECTION — the hero/buy-box, mirroring the source page's split-column layout:
+DO NOT emit ANY of the following — they already exist in the Movanella hero above:
+- Product title (\`<h1>\`) or \`{{ product.title }}\`
+- Price block, compare-at strikethrough, \`{{ product.price | money }}\`
+- Star rating with review count
+- Product image gallery (main shot + thumbnails)
+- Variant / color / size picker
+- Add-to-cart form, \`<form action="/cart/add">\`, ATC button
+- "Choose your offer" / Single / Duo / Trio bundle UI
+- Trust-bar with shipping/guarantee icons (the Movanella hero already has this)
 
-- Two columns: gallery on the LEFT, product details on the RIGHT (or stacked on mobile).
-- Gallery: render \`{% for image in product.images %}\` to enumerate the actual product images, with the FIRST image as the large main shot and the rest as a thumbnail strip BELOW the main image (not on the side). Click-to-swap behaviour is fine — emit thumbnails with \`data-image-index\` and a small JS handler that updates the main image \`src\`.
-- Right column, in this order: short tagline (eyebrow text, uppercase, source-accent color), \`<h1>\` product title (use \`{{ product.title }}\`), star rating with review count, price line with compare-at strikethrough (use \`{{ product.price | money }}\` and \`{{ product.compare_at_price | money }}\` — Shopify prices are in cents, the \`money\` filter handles formatting), feature bullets (3-5, each with a checkmark icon), variant / color picker if multiple variants, REAL add-to-cart form, and a small trust-bar of 3-4 icons (free shipping, 60-day guarantee, dermatologist tested, etc).
+Your first emitted section should be the FIRST BODY SECTION the source page shows BELOW its own hero — usually a "Why us vs others" comparison, a benefits / "ritual" grid, a science explanation, or a 3-step "how to use". Skip blueprint entries flagged \`consumedByHero: true\` — those are source-hero elements that Movanella's hero already covers.
 
-EXACT add-to-cart form (do not deviate — this is what Shopify expects):
-\`\`\`liquid
-<form action="/cart/add" method="post" enctype="multipart/form-data" class="PREFIX-buyform">
-  <input type="hidden" name="id" value="{{ product.selected_or_first_available_variant.id }}">
-  <button type="submit" class="PREFIX-cta">In den Warenkorb — {{ product.price | money }}</button>
-</form>
+In-body price CTAs (e.g. comparison cards saying "Movanella €169 vs dermatologist €250–800") are FINE to include — but they should link to \`#shopify-section-template--main\` or use \`<a href="#add-to-cart">\` to scroll to the existing hero, NOT emit a duplicate ATC form.
+
+## RECOLOR THE MOVANELLA HERO TO THE SOURCE PALETTE
+
+Your output ALSO injects CSS that overrides the Movanella hero's theme colors — the green ATC button and the green checkmark ticks — to use the SOURCE PAGE'S accent color (from the palette extracted from the screenshot). This is how a Solawave clone shows pink/blush controls in Movanella's hero, not Movanella green. Include this CSS block at the top of your \`<style>\` (replace \`{{ACCENT}}\` and \`{{ACCENT_DARK}}\` with the actual hex values from the SOURCE DESIGN PROFILE):
+
+\`\`\`css
+/* Recolor Movanella's stock product-info to match the source palette */
+.add-to-cart-button { background: {{ACCENT}} !important; border-color: {{ACCENT}} !important; }
+.add-to-cart-button:hover, .add-to-cart-button:focus { background: {{ACCENT_DARK}} !important; }
+.pd-rating { color: {{ACCENT}} !important; }
+.pd-rating svg, .pd-rating path { fill: {{ACCENT}} !important; }
+[id^="shopify-section-template"][id$="__main"] span[style*="rgb(7, 148, 26)"],
+[id^="shopify-section-template"][id$="__main"] span[style*="#07941a"] { color: {{ACCENT}} !important; }
+[id^="shopify-section-template"][id$="__main"] [class*="check"] svg path,
+[id^="shopify-section-template"][id$="__main"] [class*="tick"] svg path { fill: {{ACCENT}} !important; }
 \`\`\`
 
-Variant picker (only if \`product.variants.size > 1\`):
-\`\`\`liquid
-<label for="PREFIX-variant" class="PREFIX-label">Farbe</label>
-<select id="PREFIX-variant" name="id" form="PREFIX-buyform-id" class="PREFIX-select">
-  {% for v in product.variants %}
-    <option value="{{ v.id }}"{% unless v.available %} disabled{% endunless %}>{{ v.title }}</option>
-  {% endfor %}
-</select>
-\`\`\`
-(or render as colored swatches with \`<input type="radio" name="id" value="{{ v.id }}">\` — pick whatever matches the source's variant UI). The variant picker MUST POST to /cart/add — no fake "select" UI.
-
-In-body price CTAs further down the page (e.g. a "Movanella wand €169 vs dermatologist treatment €250–€800" comparison card) must also be real \`<form action="/cart/add">\` POSTs, not styled \`<div>\`s. A pretty pricing card that doesn't reach the cart drawer is a bug.
-
-DO NOT emit any "Choose your offer / Single / Duo / Trio" bundle UI — bundles are handled separately by an external app, not by you.
-
-NEVER EMIT A SECOND HERO. The blueprint may contain entries flagged \`consumedByHero: true\` — these correspond to source elements (title, price, rating, hero bullets, primary buy-box) that the hero/buy-box section above already renders. Do NOT emit a second section for them. Skip those blueprint entries entirely when generating body sections. The hero appears on the page exactly once.
-
-If the source uses a sticky-left product gallery (\`stickyHero: true\` on the first blueprint entry), make the gallery column \`position: sticky; top: 16px; align-self: start;\` on desktop only (\`@media (min-width: 750px)\`). The right (buy-box) column scrolls naturally as the user reads the trust content below it. On mobile, the columns stack and sticky is disabled.
+This CSS is ONLY loaded on cloned product templates (custom_liquid_cloned), so it cannot affect non-cloned Movanella products.
 
 ## CRITICAL RULES
 
@@ -202,7 +201,7 @@ If the source uses a sticky-left product gallery (\`stickyHero: true\` on the fi
 - NEVER FABRICATE NUMBERS. If the source shows "33% reduction in fine lines after 8 weeks", you emit the German for "33% reduction in fine lines after 8 weeks". Never invent percentages, customer counts, award counts, or retailer counts. Apply the NUMBERS POLICY above to soften specific claims that look implausibly large for ${store.name}.
 - REVIEWS — generate 4–6 short, plausible ${store.lang} reviews tied to product benefits. Each review: a first name, a star rating between 4 and 5, 1–3 short sentences, no implausible claims. Average rating around 4.7–4.8 (one decimal, max 4.9). Do NOT include a review count from the source (no "726.000 Kund:innen", no "12,400+ Bewertungen"). If you must show a count, keep it under 5,000.
 - The only place where you may compose new copy from scratch is when localizing locale-specific claims that must be dropped (US retail-presence) or making minor grammatical adjustments for the target language.
-- CURRENCY: use the price values from productMeta exactly as provided. If productMeta.price reads "€169", emit "€169" — never "$169". Never reference USD or "$" anywhere in the visible copy of a non-English clone. If productMeta.currency is set, prefer that symbol consistently. The Liquid \`{{ product.price | money }}\` filter handles rendering for the buy-box; for any in-copy price reference (comparison cards, hero subtitles), use the productMeta values directly.
+- CURRENCY: when you reference a price in body copy (e.g. comparison cards saying "€169 vs dermatologist treatment €800"), use the productMeta.price value exactly as provided — it has already been converted to the target market's currency. Never reference USD or "$" anywhere in the visible copy of a non-English clone. Movanella's hero above your output renders \`{{ product.price | money }}\` for the buy-box; that's not your concern.
 - FINANCING: DROP any "X interest-free payments of $Y", "as low as $Z/mo with Affirm", "Buy now pay later", or similar instalment-financing line. Do NOT localize to Klarna, Afterpay, or Sezzle unless productMeta.financing is explicitly set (it is not, today). On a non-English clone, simply omit any financing copy that appears in the source.
 - SVG icons: use Feather-style stroke icons (stroke=source heading color, stroke-width="1.5", fill="none", viewBox="0 0 24 24"). For small decorative accent icons (checkmarks in the trust bar, stars), use source accent color.
 - IMAGE CROPPING — content-card images (use-case cards, feature cards, diagrams, sleep-position illustrations, comparison images, review photos) MUST use \`aspect-ratio: 4/3; object-fit: contain; background: #fff; padding: 8px;\` — NEVER \`height: Npx; object-fit: cover\`. Source images are frequently infographics with labels, icons, arrows, or text baked in; \`cover\` crops that content off. Only the main hero or dark-hero banner — an edge-to-edge lifestyle photo — may use \`object-fit: cover\` (and even then, prefer a large min-height over a fixed pixel height).
@@ -1730,21 +1729,44 @@ function isUsablePalette(p) {
   return !allGrey;
 }
 
-// Hide Horizon's default product-information main section. Now that the AI
-// is building the full Solawave-style PDP — including the hero, gallery,
-// variant picker, and a real /cart/add form — Horizon's stock buy-box would
-// just stack on top as a duplicate (and ship the wrong palette / wrong
-// thumbnail position). We keep it in the DOM in case any embedded apps
-// query it for cart context, but it's display: none on the storefront.
+// Recolor Movanella's existing Horizon product-information section so its
+// green ATC button and green ✓ ticks pick up the source page's accent color.
 //
-// Loox reviews and the cloned section stay visible.
-function injectHorizonAtcOverride(liquid /*, sourceDesign */) {
+// Strategy reversal vs. the prior "hide-the-hero" approach: keeping
+// Movanella's hero (gallery + bundle picker + ATC + bullets) avoids the
+// duplicate-product-card problem we kept hitting. The cloned section is
+// pure body content — benefits, science, comparisons, before/after,
+// testimonials, FAQ — so the page reads as ONE Movanella PDP whose
+// content body has been swapped for the source's content.
+//
+// This function injects a programmatic safety-net CSS block targeting
+// Movanella's specific selectors (.add-to-cart-button, .pd-rating, the
+// inline-styled green checkmarks the bullet renderer emits). The AI's
+// generated CSS may already include similar rules; this one guarantees
+// the recolor even if the AI's pass missed it. The CSS is scoped to the
+// Horizon stock product section via [id^="shopify-section-template"][id$="__main"]
+// so it cannot leak to non-cloned Movanella products (which do not load
+// this template's custom_liquid section anyway).
+function injectHorizonAtcOverride(liquid, sourceDesign) {
+  const accent = (sourceDesign && sourceDesign.accent) || '#e66f8f';
+  const accentDark = (sourceDesign && (sourceDesign.dark || sourceDesign.accentDark)) || '#52263a';
+
   const overrideCss = `
-/* Hide Shopify Horizon's stock product-information section. The cloned
-   section below renders the full hero. */
-#shopify-section-main {
-  display: none !important;
-}
+/* Recolor Movanella's stock product-info section to the source palette
+   so the visible hero (Movanella's gallery + ATC + bullets) doesn't
+   render in Movanella green on a pink/blush source clone. This rule is
+   scoped to the cloned product's main section ID, plus the global
+   .add-to-cart-button class that Movanella's bundle picker also reuses. */
+.add-to-cart-button { background: ${accent} !important; border-color: ${accent} !important; }
+.add-to-cart-button:hover, .add-to-cart-button:focus { background: ${accentDark} !important; }
+[id^="shopify-section-template"][id$="__main"] .pd-rating { color: ${accent} !important; }
+[id^="shopify-section-template"][id$="__main"] .pd-rating svg,
+[id^="shopify-section-template"][id$="__main"] .pd-rating path { fill: ${accent} !important; }
+[id^="shopify-section-template"][id$="__main"] span[style*="rgb(7, 148, 26)"],
+[id^="shopify-section-template"][id$="__main"] span[style*="#07941a"],
+[id^="shopify-section-template"][id$="__main"] [style*="color: rgb(7"] { color: ${accent} !important; }
+[id^="shopify-section-template"][id$="__main"] [class*="check"] svg path,
+[id^="shopify-section-template"][id$="__main"] [class*="tick"] svg path { fill: ${accent} !important; }
 `;
 
   if (liquid.includes('<style>')) {
