@@ -105,6 +105,7 @@ function buildTranslatePrompt(targetLanguage, brandName, opts = {}) {
 - Reframe visible marketing copy so it communicates the same idea without being a verbatim copy of the source image text.
 - If a visible person appears, replace their identity with a new AI-safe person while preserving pose, angle, lighting, expression, wardrobe category, and composition. The output must not look like the original identifiable model/customer.
 - Keep the product, layout, callout positions, chart/grid structure, before/after framing, colors, and cropping close enough that the section still fits the page, but avoid a literal branded asset copy.
+- Preserve the source background palette and canvas proportions. Do not introduce chroma-key green, solid green, random studio backdrops, dark poster backgrounds, or large blank margins unless the source image already had them.
 
 ` : '';
 
@@ -128,6 +129,7 @@ DO NOT under any circumstances:
 - ADD the brand name to surfaces where no brand text was visible in the source (e.g. across the front of a pillow, onto a bedsheet, or onto a person's clothing).
 - CHANGE the number of visible text elements. If the source has one small tag, the output has one small tag — not three, not a big banner plus a tag.
 - RE-COMPOSE, RE-STYLE, or CLEAN UP the image. Keep backgrounds, lighting, perspective, and cropping identical.
+- CHANGE THE BACKGROUND COLOR. In particular, never replace white/cream/blush/transparent-looking product backgrounds with green.
 
 If you are tempted to add a label, enlarge a tag, or improve legibility by making text bigger, STOP — that is out of scope. Fidelity to the source wins over "making the brand stand out."
 
@@ -142,6 +144,8 @@ ${identityLine}
 - Preserve the visual scale, position, angle, and prominence of every text element. A 20×60px care-tag stays a 20×60px care-tag in the output.
 - If a badge or label has an icon, keep the icon and only change the text next to it.
 - Do NOT fabricate product specifications, size labels, dimensions, or care instructions. If a piece of text is not clearly present in the source, it must not appear in the output.
+- Do NOT create typo-prone new overlay copy. Existing text may be translated/reframed in place, but do not invent instructions, slogans, or result claims that were not visibly present.
+- Do NOT add prominent "${brandName || 'brand'}" text to the product. Replace existing source-brand marks at the same tiny scale, use a monogram/blank fallback when needed, and prefer a clean unbranded product over an oversized or misspelled wordmark.
 - READABILITY IS NON-NEGOTIABLE: never output garbled, misspelled, half-formed, or scrambled letters in any language, at any size. Every rendered character — even on the smallest pillow tag or tiny thumbnail — must be a correctly shaped, correctly spelled letter. If a tag is so small that "${brandName || 'the brand'}" cannot fit legibly at source scale, use the monogram or blank fallback from the brand section above. NEVER render a full word with wrong letters. NEVER enlarge the tag to compensate. Garbled brand text is the single worst possible output — except for an enlarged or fabricated label, which is the second-worst. Avoid both at all costs.
 
 Output the edited image as JPEG with maximum quality preservation.`;

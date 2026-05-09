@@ -205,6 +205,10 @@ This CSS is ONLY loaded on cloned product templates (custom_liquid_cloned), so i
 - FINANCING: DROP any "X interest-free payments of $Y", "as low as $Z/mo with Affirm", "Buy now pay later", or similar instalment-financing line. Do NOT localize to Klarna, Afterpay, or Sezzle unless productMeta.financing is explicitly set (it is not, today). On a non-English clone, simply omit any financing copy that appears in the source.
 - SVG icons: use Feather-style stroke icons (stroke=source heading color, stroke-width="1.5", fill="none", viewBox="0 0 24 24"). For small decorative accent icons (checkmarks in the trust bar, stars), use source accent color.
 - IMAGE CROPPING — content-card images (use-case cards, feature cards, diagrams, sleep-position illustrations, comparison images, review photos) MUST use \`aspect-ratio: 4/3; object-fit: contain; background: #fff; padding: 8px;\` — NEVER \`height: Npx; object-fit: cover\`. Source images are frequently infographics with labels, icons, arrows, or text baked in; \`cover\` crops that content off. Only the main hero or dark-hero banner — an edge-to-edge lifestyle photo — may use \`object-fit: cover\` (and even then, prefer a large min-height over a fixed pixel height).
+- BODY LAYOUT QUALITY — never create oversized empty frames around images. Do NOT use \`min-height: 100vh\`, \`height: 100vh\`, \`height: 80vh\`, \`padding-top\`/ \`padding-bottom\` above 96px, or full-screen poster sections in the cloned body. Every section after the hero should feel like a PDP content block, not a landing-page hero.
+- IMAGE FRAME QUALITY — image wrappers must hug the image. If an image is a complete card/infographic/composite, render it at natural proportions with \`width: 100%; height: auto; object-fit: contain; padding: 0\`. Do not put a 600px image in a 1200px tall white box. Do not add large blank white space above or below images.
+- BACKGROUND COLOR QUALITY — never use solid green, chroma-key green, or Movanella green as an image background unless the source image itself had that exact green background. For Solawave-like skincare pages, image frames should be white, cream, blush, or transparent, and dark sections should use a readable deep berry tone, not near-black.
+- TEXT-IN-IMAGE QUALITY — do not invent new text inside images. Do not output typo-prone generated text such as misspelled instructions. If a source image already has baked-in text, the image-editing pipeline will reframe/translate it; in Liquid, use the completed image whole instead of recreating its text.
 - BEFORE/AFTER RULE — DO NOT build the before/after / "Real Results" / "Real Skin. Real Change." section yourself. The post-processor builds it deterministically from the labeled image pairs the scraper detected, because you don't reliably know which "before" matches which "after" image. Instead, emit the placeholder marker:
     \`<!-- BEFORE_AFTER_SLIDER_PLACEHOLDER -->\`
   on its own line, in the spot where this section should sit (typically between the technology / clinical-results sections and the expert-endorsement section). The post-processor will replace the placeholder with a working drag-to-reveal carousel using the correct pairs and localized labels. Never reference before-after composite images, "DAY 0/DAY 30" photos, or testimonial faces in any other section — they belong only in this slot.
@@ -428,6 +432,7 @@ IMAGE USAGE RULES:
 - Prefer images with descriptive labels (diagrams, callouts, benefits, lifestyle shots) for content sections. Reserve the clean product-only shots for the gallery/hero.
 - If a critical source image is listed above, preserve it as a complete visual asset in the matching section. Before/after composite images must remain composite images.
 - If BEFORE/AFTER SLIDER ASSETS lists composite images, you MUST build a horizontal results slider/carousel using those complete images. If it lists a before + after pair instead, build a draggable compare slider with those exact two image URLs.
+- Do not place before/after images inside oversized white cards. The deterministic post-processor will size the proof carousel tightly; only emit \`<!-- BEFORE_AFTER_SLIDER_PLACEHOLDER -->\` where the proof section belongs.
 ${targetLanguage ? `- Target language is ${LANGUAGE_LABELS[targetLanguage] || targetLanguage}. Still reference the exact source image URLs in the HTML. The pipeline will edit those images with Nano Banana Pro, translate visible image text to ${LANGUAGE_LABELS[targetLanguage] || targetLanguage}, upload them to Shopify, and rewrite these URLs to the translated Shopify CDN versions.` : ''}
 
 ## REFERENCE STRUCTURE
@@ -463,6 +468,7 @@ Now generate the complete file for "${productMeta.title}". Remember: unique CSS 
   liquid = injectBeforeAfterSliderFallback(liquid, beforeAfterAssets, sourceDesign, targetLanguage);
   liquid = ensureProductCardVisualsCovered(liquid, productCardAssets);
   liquid = injectHorizonAtcOverride(liquid, sourceDesign);
+  liquid = injectCloneLayoutGuard(liquid, sourceDesign);
 
   // Validate it has the required parts
   if (!liquid.includes('<style>') || !liquid.includes('<div')) {
@@ -1517,6 +1523,38 @@ function injectHorizonAtcOverride(liquid, sourceDesign) {
 [id^="shopify-section-template"][id$="__main"] [style*="color: rgb(7"] { color: ${accent} !important; }
 [id^="shopify-section-template"][id$="__main"] [class*="check"] svg path,
 [id^="shopify-section-template"][id$="__main"] [class*="tick"] svg path { fill: ${accent} !important; }
+[id^="shopify-section-template"][id$="__main"] [class*="bundle"],
+[id^="shopify-section-template"][id$="__main"] [class*="Bundle"],
+[id^="shopify-section-template"][id$="__main"] [class*="offer"],
+[id^="shopify-section-template"][id$="__main"] [class*="Offer"],
+[id^="shopify-section-template"][id$="__main"] [class*="rapi"],
+[id^="shopify-section-template"][id$="__main"] [class*="Rapi"] {
+  --accent-color: ${accent} !important;
+  --primary-color: ${accent} !important;
+  --selected-color: ${accent} !important;
+  --selected-border-color: ${accent} !important;
+  --bundle-primary-color: ${accent} !important;
+}
+[id^="shopify-section-template"][id$="__main"] [style*="#7042c9"],
+[id^="shopify-section-template"][id$="__main"] [style*="#7c3aed"],
+[id^="shopify-section-template"][id$="__main"] [style*="#6d28d9"],
+[id^="shopify-section-template"][id$="__main"] [style*="#5433ff"],
+[id^="shopify-section-template"][id$="__main"] [style*="rgb(112, 66, 201)"],
+[id^="shopify-section-template"][id$="__main"] [style*="rgb(124, 58, 237)"],
+[id^="shopify-section-template"][id$="__main"] [style*="rgb(84, 51, 255)"] {
+  border-color: ${accent} !important;
+  color: ${accent} !important;
+}
+[id^="shopify-section-template"][id$="__main"] [style*="background: #7042c9"],
+[id^="shopify-section-template"][id$="__main"] [style*="background:#7042c9"],
+[id^="shopify-section-template"][id$="__main"] [style*="background-color: #7042c9"],
+[id^="shopify-section-template"][id$="__main"] [style*="background-color:#7042c9"],
+[id^="shopify-section-template"][id$="__main"] [style*="background: rgb(112, 66, 201)"],
+[id^="shopify-section-template"][id$="__main"] [style*="background-color: rgb(112, 66, 201)"] {
+  background: ${accent} !important;
+  border-color: ${accent} !important;
+  color: #fff !important;
+}
 `;
 
   if (liquid.includes('<style>')) {
@@ -1537,6 +1575,11 @@ function applySourcePaletteGuard(liquid, sourceDesign) {
     [/#16a34a/gi, sourceDesign.accent],
     [/#22c55e/gi, sourceDesign.accent],
     [/#15803d/gi, sourceDesign.accent],
+    [/#7042c9/gi, sourceDesign.accent],
+    [/#7c3aed/gi, sourceDesign.accent],
+    [/#6d28d9/gi, sourceDesign.accent],
+    [/#5433ff/gi, sourceDesign.accent],
+    [/#5b35f5/gi, sourceDesign.accent],
     [/#1b2d5b/gi, sourceDesign.dark],
     [/#0f172a/gi, sourceDesign.dark],
     [/#1e293b/gi, sourceDesign.dark],
@@ -1555,6 +1598,159 @@ function applySourcePaletteGuard(liquid, sourceDesign) {
     console.log(`  [AI] Applied source palette guard (${changed} color replacement(s) → ${sourceDesign.accent}/${sourceDesign.dark})`);
   }
   return out;
+}
+
+function injectCloneLayoutGuard(liquid, sourceDesign) {
+  const prefix = inferCssPrefix(liquid);
+  const accent = (sourceDesign && sourceDesign.accent) || '#e66f8f';
+  const dark = (sourceDesign && (sourceDesign.dark || sourceDesign.accentDark)) || '#52263a';
+  const soft = (sourceDesign && sourceDesign.soft) || '#fde8ee';
+  const cream = (sourceDesign && sourceDesign.cream) || '#fff7f1';
+  const imageBg = '#fff';
+  const darkSection = readableDarkSectionColor(dark);
+
+  const guardCss = `
+/* Cloner layout guard.
+   Keeps AI-generated body sections from becoming oversized poster blocks,
+   oversized image frames, or off-palette green/purple leftovers. Scoped to
+   this clone wrapper only, so theme chrome and global footer stay untouched. */
+.${prefix}-wrap {
+  --clone-accent: ${accent};
+  --clone-dark: ${dark};
+  --clone-soft: ${soft};
+  --clone-cream: ${cream};
+  --clone-dark-section: ${darkSection};
+}
+.${prefix}-wrap section {
+  min-height: auto !important;
+  padding-top: clamp(28px, 5vw, 76px) !important;
+  padding-bottom: clamp(28px, 5vw, 76px) !important;
+}
+.${prefix}-wrap img {
+  max-width: 100%;
+  height: auto;
+}
+.${prefix}-wrap [class*="image-card"],
+.${prefix}-wrap [class*="img-card"],
+.${prefix}-wrap [class*="media-card"],
+.${prefix}-wrap [class*="visual-card"],
+.${prefix}-wrap [class*="photo-card"],
+.${prefix}-wrap [class*="figure-card"] {
+  min-height: 0 !important;
+  padding: clamp(8px, 1.5vw, 22px) !important;
+  background: ${imageBg} !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.${prefix}-wrap [class*="image-card"] > img,
+.${prefix}-wrap [class*="img-card"] > img,
+.${prefix}-wrap [class*="media-card"] > img,
+.${prefix}-wrap [class*="visual-card"] > img,
+.${prefix}-wrap [class*="photo-card"] > img,
+.${prefix}-wrap [class*="figure-card"] > img,
+.${prefix}-wrap figure > img {
+  width: 100% !important;
+  height: auto !important;
+  max-height: min(760px, 72vh);
+  aspect-ratio: auto !important;
+  object-fit: contain !important;
+  object-position: center !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
+.${prefix}-wrap [class*="before"] img,
+.${prefix}-wrap [class*="after"] img,
+.${prefix}-wrap [class*="result"] img,
+.${prefix}-wrap [class*="ba-"] img {
+  object-fit: contain !important;
+}
+.${prefix}-wrap [class*="-ba-section"] {
+  margin: clamp(28px, 5vw, 64px) auto !important;
+  padding: clamp(20px, 4vw, 48px) !important;
+}
+.${prefix}-wrap [class*="-ba-carousel"],
+.${prefix}-wrap [class*="-ba-slider"],
+.${prefix}-wrap [class*="-ba-viewport"] {
+  max-width: min(1040px, 92vw) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+.${prefix}-wrap [class*="-ba-composite-card"] {
+  max-width: min(900px, 92vw) !important;
+  background: #fff !important;
+}
+.${prefix}-wrap [class*="-ba-composite-card"] img {
+  width: 100% !important;
+  height: auto !important;
+  max-height: min(760px, 72vh);
+  aspect-ratio: auto !important;
+  object-fit: contain !important;
+}
+.${prefix}-wrap [style*="#07941a"],
+.${prefix}-wrap [style*="#16a34a"],
+.${prefix}-wrap [style*="#22c55e"],
+.${prefix}-wrap [style*="rgb(7, 148, 26)"],
+.${prefix}-wrap [style*="rgb(22, 163, 74)"],
+.${prefix}-wrap [style*="rgb(34, 197, 94)"] {
+  background-color: ${soft} !important;
+  border-color: ${accent} !important;
+  color: ${dark} !important;
+}
+.${prefix}-wrap [style*="#7042c9"],
+.${prefix}-wrap [style*="#7c3aed"],
+.${prefix}-wrap [style*="#6d28d9"],
+.${prefix}-wrap [style*="#5433ff"],
+.${prefix}-wrap [style*="rgb(112, 66, 201)"],
+.${prefix}-wrap [style*="rgb(124, 58, 237)"],
+.${prefix}-wrap [style*="rgb(84, 51, 255)"] {
+  border-color: ${accent} !important;
+  color: ${accent} !important;
+}
+.${prefix}-wrap section[class*="dark"],
+.${prefix}-wrap section[class*="night"],
+.${prefix}-wrap section[class*="price"],
+.${prefix}-wrap section[class*="cost"],
+.${prefix}-wrap [class*="dark-section"],
+.${prefix}-wrap [class*="price-section"],
+.${prefix}-wrap [class*="cost-section"] {
+  background: ${darkSection} !important;
+}
+@media (max-width: 749px) {
+  .${prefix}-wrap section {
+    padding-top: 28px !important;
+    padding-bottom: 28px !important;
+  }
+  .${prefix}-wrap [class*="image-card"],
+  .${prefix}-wrap [class*="img-card"],
+  .${prefix}-wrap [class*="media-card"],
+  .${prefix}-wrap [class*="visual-card"],
+  .${prefix}-wrap [class*="photo-card"],
+  .${prefix}-wrap [class*="figure-card"] {
+    padding: 8px !important;
+  }
+  .${prefix}-wrap figure > img {
+    max-height: none;
+  }
+}
+`;
+
+  if (liquid.includes('<style>')) {
+    return liquid.replace('</style>', `${guardCss}\n</style>`);
+  }
+  return `<style>${guardCss}</style>\n${liquid}`;
+}
+
+function readableDarkSectionColor(hex) {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex || '');
+  if (!m) return '#52263a';
+  const r = parseInt(m[1].slice(0, 2), 16);
+  const g = parseInt(m[1].slice(2, 4), 16);
+  const b = parseInt(m[1].slice(4, 6), 16);
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  if (luminance >= 0.08) return hex;
+  const mix = (channel) => Math.round(channel * 0.82 + 255 * 0.18);
+  return `#${[mix(r), mix(g), mix(b)].map(v => v.toString(16).padStart(2, '0')).join('')}`;
 }
 
 /**

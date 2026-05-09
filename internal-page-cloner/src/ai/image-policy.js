@@ -16,37 +16,37 @@ const POLICIES = {
     skip: false,
     dropFromOutput: false,
     faceSwap: false,
-    extraInstruction: 'Keep this as a product-media/gallery asset. Do not add new text blocks, comparison tables, badges, people, or extra product props that are not already present.'
+    extraInstruction: 'Keep this as a product-media/gallery asset. Do not add new text blocks, comparison tables, badges, people, or extra product props that are not already present. Preserve the source background color/palette; never replace it with chroma-key green, solid green, or a random studio backdrop.'
   },
   'lifestyle-with-person': {
     skip: false,
     dropFromOutput: false,
     faceSwap: true,
-    extraInstruction: ''
+    extraInstruction: 'Preserve the source background, crop, lighting, and section-ready composition. Do not introduce chroma-key green, solid green, dark poster backgrounds, or new text overlays. If a device label is visible, remove the source brand or keep it blank/subtle; do not add a large Movanella wordmark.'
   },
   'callout-with-text': {
     skip: false,
     dropFromOutput: false,
     faceSwap: false,
-    extraInstruction: 'This image is an annotated diagram with callouts pointing at parts of the product. Translate every callout label and any heading text. Do NOT move callouts, do NOT redraw arrows, do NOT change which part of the product each label points to.'
+    extraInstruction: 'This image is an annotated diagram with callouts pointing at parts of the product. Translate/reframe every callout label and any heading text. Do NOT move callouts, do NOT redraw arrows, do NOT change which part of the product each label points to. Preserve the original background palette; never introduce green/chroma-key backgrounds.'
   },
   'comparison-composite': {
     skip: false,
     dropFromOutput: false,
     faceSwap: false,
-    extraInstruction: 'This image is a comparison chart or side-by-side composite. Freeze the layout — do not re-compose the grid, do not move columns, do not add or remove rows. Translate text only.'
+    extraInstruction: 'This image is a comparison chart or side-by-side composite. Freeze the layout — do not re-compose the grid, do not move columns, do not add or remove rows. Reframe/translate text only. Keep the original background and canvas proportions; do not add green/chroma-key backgrounds.'
   },
   'product-only': {
     skip: false,
     dropFromOutput: false,
     faceSwap: false,
-    extraInstruction: 'This is a clean product-only/catalog image. Keep it product-only. Remove source-brand marks or device logos, but do not add people, text, callouts, comparison charts, badges, or extra objects.'
+    extraInstruction: 'This is a clean product-only/catalog image. Keep it product-only. Remove source-brand marks or device logos, but do not add people, text, callouts, comparison charts, badges, or extra objects. Preserve the original studio/canvas background; if the source is white/cream/blush/transparent-looking, keep it white/cream/blush. Never use chroma-key green or solid green. Prefer a blank/unbranded device over a large Movanella label.'
   },
   'before-after': {
     skip: false,
     dropFromOutput: false,
     faceSwap: true,
-    extraInstruction: 'This is a before/after or results image. Preserve the before/after composition and crop, but replace visible identities with new AI-safe people, remove source branding, and reframe any visible text for the target brand. Do not upload or reference the original source image.'
+    extraInstruction: 'This is a before/after or results image. Preserve the before/after composition, crop, scale, and canvas dimensions, but replace visible identities with new AI-safe people, remove source branding, and reframe any visible text for the target brand. Keep labels short and correctly spelled. Do not add new claims, typos, or invented instructions. Do not upload or reference the original source image.'
   },
   'logo-strip': {
     skip: true,
