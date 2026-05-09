@@ -234,6 +234,35 @@ function runPostCloneQa(ctx) {
     }
   }
 
+  // ── Check 6b: Body language contamination ─────────────────────────────
+  // The title can be translated correctly while generated section copy drifts
+  // into a neighboring language. We saw this on German PDPs where the body was
+  // accidentally Dutch, so count specific, low-false-positive body markers.
+  const bodyTextForLanguage = htmlToText(liquidContent).toLowerCase();
+  if (targetLanguage === 'de' && bodyTextForLanguage) {
+    const dutchLeakMarkers = [
+      /\bwaarom\b/g,
+      /\bhuid(?:verzorging|type)?\b/g,
+      /\bbehandeling(?:en)?\b/g,
+      /\bzichtbaar(?:e)?\b/g,
+      /\bmakkelijk\b/g,
+      /\bgebruik(?:en)?\b/g,
+      /\bveelgestelde\b/g,
+      /\bvragen\b/g,
+      /\bjouw\b/g,
+      /\bklant(?:momenten)?\b/g,
+      /\boplaadbaar\b/g,
+      /\bvoeding\b/g,
+      /\bdoos\b/g,
+      /\bvoor\s+en\s+na\b/g,
+      /\bgeen\s+ingewikkelde\b/g
+    ];
+    const dutchHits = dutchLeakMarkers.reduce((sum, re) => sum + ((bodyTextForLanguage.match(re) || []).length), 0);
+    if (dutchHits >= 4) {
+      errors.push(`Generated page copy appears to contain Dutch text (${dutchHits} Dutch marker hits) while the target language is German.`);
+    }
+  }
+
   // ── Check 7: Description sanity ────────────────────────────────────────
   const desc = productMeta?.description || '';
   if (!desc || desc.length < 30) {
