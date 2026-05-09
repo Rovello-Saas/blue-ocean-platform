@@ -423,16 +423,16 @@ ${formatBeforeAfterAssets(beforeAfterAssets)}
 ${formatProductCardAssets(productCardAssets)}
 
 IMAGE USAGE RULES:
-- The PRODUCT CARD / MEDIA CAROUSEL VISUAL ASSETS are the same card-like images the shopper sees in the source product media carousel. Treat them as primary reference sections. If they are infographics, comparison cards, stats cards, usage cards, or feature cards, show them as complete images in matching sections rather than inventing unrelated replacement layouts.
+- The PRODUCT CARD / MEDIA CAROUSEL VISUAL ASSETS are the same card-like images the shopper sees in the source product media carousel. Use them only when they semantically match an actual body section. Do NOT create a standalone "product cards", "important product cards", "product carousel story", or grid-of-all-gallery-images section. That repeats the hero gallery and makes the PDP look machine-built.
+- If a product-card image is an infographic, comparison card, stats card, usage card, or feature card, show it as a complete image in the one matching section. Keep the surrounding section compact and purposeful.
 - Pick the SEMANTICALLY most appropriate URL for each slot. The label in square brackets tells you what each image shows (e.g. "hotel pillow meagan side sleeping" is a side-sleeper photo; "size guide" is a sizing diagram; "hotel pillow callouts" is a features-callout diagram).
 - Prefer the PRODUCT GALLERY / product-card images for every image slot when they match the section. The Shopify product gallery and the generated content sections should reuse the same source assets, so the collection/product card and page body feel connected.
 - For each SOURCE SECTION BLUEPRINT item that has an image, use that exact image URL in the matching cloned section where possible. Do not substitute a random lifestyle shot for a comparison chart, before/after image, usage infographic, stats graphic, or guarantee card.
 - DO NOT reuse the same image URL across multiple different sections. If you have a "Side Sleeper / Back Sleeper / Stomach Sleeper" grid and three distinct sleeper photos are available, use three different URLs — one for each card. Only reuse an image if the layout intentionally shows the same product angle twice (e.g. hero + dark-hero split) AND no alternate angle is available.
 - If you run out of distinct semantically-matching images for a section, pick the closest-fitting unused image rather than repeating one you already used.
 - Prefer images with descriptive labels (diagrams, callouts, benefits, lifestyle shots) for content sections. Reserve the clean product-only shots for the gallery/hero.
-- If a critical source image is listed above, preserve it as a complete visual asset in the matching section. Before/after composite images must remain composite images.
-- If BEFORE/AFTER SLIDER ASSETS lists composite images, you MUST build a horizontal results slider/carousel using those complete images. If it lists a before + after pair instead, build a draggable compare slider with those exact two image URLs.
-- Do not place before/after images inside oversized white cards. The deterministic post-processor will size the proof carousel tightly; only emit \`<!-- BEFORE_AFTER_SLIDER_PLACEHOLDER -->\` where the proof section belongs.
+- If a critical source image is listed above, preserve it as a complete visual asset in the matching section, except before/after proof images.
+- Never build the before/after section yourself. Do not reference before/after composite images directly. The deterministic post-processor will size the proof carousel tightly; only emit \`<!-- BEFORE_AFTER_SLIDER_PLACEHOLDER -->\` where the proof section belongs.
 ${targetLanguage ? `- Target language is ${LANGUAGE_LABELS[targetLanguage] || targetLanguage}. Still reference the exact source image URLs in the HTML. The pipeline will edit those images with Nano Banana Pro, translate visible image text to ${LANGUAGE_LABELS[targetLanguage] || targetLanguage}, upload them to Shopify, and rewrite these URLs to the translated Shopify CDN versions.` : ''}
 
 ## REFERENCE STRUCTURE
@@ -798,13 +798,13 @@ function stripAIBuiltBeforeAfter(liquid) {
 
 function beforeAfterCopy(targetLanguage) {
   const copy = {
-    de: { heading: 'Echte Ergebnisse', subhead: 'Schiebe den Regler, um Vorher und Nachher zu vergleichen.', before: 'Vorher', after: 'Nachher', prev: 'Vorheriges Ergebnis', next: 'Nächstes Ergebnis' },
-    nl: { heading: 'Echte resultaten', subhead: 'Schuif de regelaar om voor en na te vergelijken.', before: 'Voor', after: 'Na', prev: 'Vorig resultaat', next: 'Volgend resultaat' },
-    fr: { heading: 'De vrais résultats', subhead: 'Faites glisser le curseur pour comparer avant et après.', before: 'Avant', after: 'Après', prev: 'Résultat précédent', next: 'Résultat suivant' },
-    es: { heading: 'Resultados reales', subhead: 'Desliza el control para comparar antes y después.', before: 'Antes', after: 'Después', prev: 'Resultado anterior', next: 'Siguiente resultado' },
-    it: { heading: 'Risultati reali', subhead: 'Trascina il cursore per confrontare prima e dopo.', before: 'Prima', after: 'Dopo', prev: 'Risultato precedente', next: 'Risultato successivo' }
+    de: { heading: 'Echte Ergebnisse', subhead: 'Schiebe den Regler, um Vorher und Nachher zu vergleichen.', carouselSubhead: 'Sieh dir die Ergebnisse in einer kompakten Galerie an.', before: 'Vorher', after: 'Nachher', prev: 'Vorheriges Ergebnis', next: 'Nächstes Ergebnis' },
+    nl: { heading: 'Echte resultaten', subhead: 'Schuif de regelaar om voor en na te vergelijken.', carouselSubhead: 'Bekijk de resultaten in een compacte galerij.', before: 'Voor', after: 'Na', prev: 'Vorig resultaat', next: 'Volgend resultaat' },
+    fr: { heading: 'De vrais résultats', subhead: 'Faites glisser le curseur pour comparer avant et après.', carouselSubhead: 'Parcourez les résultats dans une galerie compacte.', before: 'Avant', after: 'Après', prev: 'Résultat précédent', next: 'Résultat suivant' },
+    es: { heading: 'Resultados reales', subhead: 'Desliza el control para comparar antes y después.', carouselSubhead: 'Explora los resultados en una galería compacta.', before: 'Antes', after: 'Después', prev: 'Resultado anterior', next: 'Siguiente resultado' },
+    it: { heading: 'Risultati reali', subhead: 'Trascina il cursore per confrontare prima e dopo.', carouselSubhead: 'Guarda i risultati in una galleria compatta.', before: 'Prima', after: 'Dopo', prev: 'Risultato precedente', next: 'Risultato successivo' }
   };
-  return copy[targetLanguage] || { heading: 'Real results you can see', subhead: 'Drag the handle to compare before and after.', before: 'Before', after: 'After', prev: 'Previous result', next: 'Next result' };
+  return copy[targetLanguage] || { heading: 'Real results you can see', subhead: 'Drag the handle to compare before and after.', carouselSubhead: 'Browse the results in a compact gallery.', before: 'Before', after: 'After', prev: 'Previous result', next: 'Next result' };
 }
 
 // Build a carousel of compare-sliders. Each slide is either a true pair
@@ -813,6 +813,8 @@ function beforeAfterCopy(targetLanguage) {
 // The carousel itself uses prev/next + dots, exactly like buildBeforeAfterCarousel.
 function buildBeforeAfterPairCarousel(prefix, colors, slides, targetLanguage) {
   const copy = beforeAfterCopy(targetLanguage);
+  const hasTruePair = slides.some(slot => slot.kind === 'pair');
+  const subhead = hasTruePair ? copy.subhead : copy.carouselSubhead;
 
   const slideHtml = slides.map((slot, i) => {
     if (slot.kind === 'pair') {
@@ -968,7 +970,8 @@ ${dots}
   .${prefix}-ba-composite-card img {
     display: block;
     width: 100%;
-    aspect-ratio: 1 / 1;
+    height: auto;
+    max-height: min(70vh, 640px);
     object-fit: contain;
     background: #fff;
   }
@@ -1100,7 +1103,7 @@ ${dots}
   <section class="${prefix}-ba-section">
     <div class="${prefix}-ba-heading">
       <h2>${escapeHtml(copy.heading)}</h2>
-      <p>${escapeHtml(copy.subhead)}</p>
+      <p>${escapeHtml(subhead)}</p>
     </div>
     <div class="${prefix}-ba-carousel" data-before-after-carousel>
       <div class="${prefix}-ba-viewport">

@@ -248,6 +248,49 @@ function runPostCloneQa(ctx) {
     warnings.push('Generated page content is missing a <style> block; layout may look broken.');
   }
 
+  // ── Check 9: PDP layout traps we repeatedly saw in live clones ─────────
+  // These checks intentionally run before publish too, so bad "faster to do
+  // manually" pages fail early instead of going live with obvious layout bugs.
+  const rawLiquid = String(liquidContent || '');
+  const visibleText = htmlToText(rawLiquid);
+  const lowerText = visibleText.toLowerCase();
+
+  const fullScreenSectionRe = /(?:min-)?height\s*:\s*(?:80|85|90|95|100)(?:svh|vh)|padding-(?:top|bottom)\s*:\s*(?:1[0-9]{2}|[2-9][0-9]{2})px/i;
+  if (fullScreenSectionRe.test(rawLiquid)) {
+    errors.push('Generated body content contains full-screen or oversized vertical section sizing. PDP body sections must be compact content blocks, not huge poster sections.');
+  }
+
+  const saysDragBeforeAfter =
+    /(drag|schiebe|schuif|faites glisser|desliza|trascina).{0,80}(handle|regler|regelaar|curseur|control|cursore)/i.test(visibleText);
+  const hasRealBeforeAfterControl =
+    /type\s*=\s*["']range["']|data-before-after-pair|data-before-after-carousel/i.test(rawLiquid);
+  if (saysDragBeforeAfter && !hasRealBeforeAfterControl) {
+    errors.push('Before/after copy tells shoppers to drag a slider, but the generated section has no real slider control.');
+  }
+
+  const beforeAfterMentions =
+    /(before\s*[\/&-]\s*after|day\s*0|day\s*30|real\s*results|vorher|nachher|voor\s*[\/&-]\s*na|tag\s*0|tag\s*30|echte resultaten|echte ergebnisse)/i.test(visibleText);
+  const beforeAfterImageCount = liquidImageUrls.filter(u => /before|after|day|result|gallery-9|gallery-10|gallery-12/i.test(u)).length;
+  if (beforeAfterMentions && beforeAfterImageCount >= 2 && !hasRealBeforeAfterControl) {
+    errors.push('Before/after proof appears to be a static image grid. Use the deterministic before/after carousel or placeholder instead.');
+  }
+
+  if (/\b(?:uee|clee|dierctly|toom uch|straident)\b/i.test(visibleText)) {
+    errors.push('Visible copy contains obvious generated-text typos. Image/text rewriting needs another pass before publish.');
+  }
+
+  const productCardDump =
+    /(product\s*cards?|product-card|produktkarten|productkaarten|product\s*carousel|produktkarussell|produktkarussell)/i.test(visibleText) &&
+    liquidImageUrls.length >= 6;
+  if (productCardDump) {
+    errors.push('Generated body includes a product-card/product-carousel dump section. Gallery cards should be used only as semantically matched visuals, not repeated as a standalone grid.');
+  }
+
+  const leakedBadPalette = /#07941a|rgb\(\s*7\s*,\s*148\s*,\s*26\s*\)|#6f42c1|rgb\(\s*111\s*,\s*66\s*,\s*193\s*\)/i.test(rawLiquid);
+  if (leakedBadPalette) {
+    warnings.push('Generated liquid still contains Movanella green or default bundle purple values. Palette guard may fix this at runtime, but the source CSS should avoid those colors.');
+  }
+
   const pass = errors.length === 0;
 
   return { pass, errors, warnings, info };
