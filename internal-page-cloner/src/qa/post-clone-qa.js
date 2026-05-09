@@ -188,6 +188,7 @@ function runPostCloneQa(ctx) {
   // source domain's brand stem.
   if (brandName) {
     const text = htmlToText(liquidContent).toLowerCase();
+    const raw = String(liquidContent || '').toLowerCase();
     const stemsToCheck = new Set();
 
     // Derive a brand stem from the source hostname (e.g. "alcedohealth.com" → "alcedo", "alcedohealth")
@@ -199,7 +200,7 @@ function runPostCloneQa(ctx) {
       if (match) stemsToCheck.add(match[1]);
     }
     // Known source brands we've cloned from before
-    ['mellow', 'mellowsleep'].forEach(b => stemsToCheck.add(b));
+    ['solawave', 'mellow', 'mellowsleep'].forEach(b => stemsToCheck.add(b));
 
     // Don't flag the destination brand itself
     stemsToCheck.delete(brandName.toLowerCase());
@@ -208,7 +209,7 @@ function runPostCloneQa(ctx) {
       if (!stem || stem.length < 3) continue;
       // Word boundary match to avoid e.g. "alcedo" hitting "alcedomania"
       const re = new RegExp(`\\b${stem}\\b`, 'i');
-      if (re.test(text)) {
+      if (re.test(text) || re.test(raw)) {
         errors.push(`Source brand name "${stem}" still appears in the generated page copy. It should read "${brandName}".`);
         break; // one per product is enough — don't flood the report
       }

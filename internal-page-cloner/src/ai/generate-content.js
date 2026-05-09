@@ -1557,10 +1557,70 @@ function injectHorizonAtcOverride(liquid, sourceDesign) {
 }
 `;
 
-  if (liquid.includes('<style>')) {
-    return liquid.replace('<style>', `<style>${overrideCss}`);
+  const runtimeJs = `
+(function() {
+  var accent = ${JSON.stringify(accent)};
+  var dark = ${JSON.stringify(accentDark)};
+  var purpleNeedles = [
+    '111, 66, 193', '112, 66, 201', '124, 58, 237',
+    '#6f42c1', '#7042c9', '#7c3aed', '#6d28d9', '#5433ff'
+  ];
+  function isPurple(value) {
+    if (!value) return false;
+    var lower = String(value).toLowerCase();
+    return purpleNeedles.some(function(needle) { return lower.indexOf(needle) !== -1; });
   }
-  return `<style>${overrideCss}</style>\n${liquid}`;
+  function recolorNode(el) {
+    if (!el || !el.style) return;
+    var cs = window.getComputedStyle(el);
+    if (isPurple(cs.borderTopColor) || isPurple(cs.borderRightColor) || isPurple(cs.borderBottomColor) || isPurple(cs.borderLeftColor)) {
+      el.style.setProperty('border-color', accent, 'important');
+    }
+    if (isPurple(cs.color)) {
+      el.style.setProperty('color', accent, 'important');
+    }
+    if (isPurple(cs.backgroundColor)) {
+      el.style.setProperty('background-color', accent, 'important');
+      el.style.setProperty('border-color', accent, 'important');
+      el.style.setProperty('color', '#fff', 'important');
+    }
+    ['--accent-color', '--primary-color', '--selected-color', '--selected-border-color', '--bundle-primary-color', '--rapi-primary-color'].forEach(function(prop) {
+      el.style.setProperty(prop, accent, 'important');
+    });
+  }
+  function recolorBundle() {
+    var root = document.querySelector('[id^="shopify-section-template"][id$="__main"]');
+    if (!root) return;
+    var candidates = root.querySelectorAll('[class*="bundle"], [class*="Bundle"], [class*="offer"], [class*="Offer"], [class*="rapi"], [class*="Rapi"], [style*="#6F42C1"], [style*="#7042c9"], [style*="rgb(112, 66, 201)"]');
+    candidates.forEach(function(el) {
+      recolorNode(el);
+      el.querySelectorAll('*').forEach(recolorNode);
+    });
+    root.querySelectorAll('input[type="radio"]:checked').forEach(function(input) {
+      var host = input.closest('label, div, li');
+      if (host) host.style.setProperty('border-color', accent, 'important');
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', recolorBundle);
+  } else {
+    recolorBundle();
+  }
+  [250, 750, 1500, 3000].forEach(function(ms) { window.setTimeout(recolorBundle, ms); });
+  var main = document.querySelector('[id^="shopify-section-template"][id$="__main"]');
+  if (main && window.MutationObserver) {
+    new MutationObserver(recolorBundle).observe(main, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
+  }
+})();`;
+
+  let out = liquid.includes('<style>')
+    ? liquid.replace('<style>', `<style>${overrideCss}`)
+    : `<style>${overrideCss}</style>\n${liquid}`;
+
+  if (out.includes('</script>')) {
+    return out.replace('</script>', `${runtimeJs}\n</script>`);
+  }
+  return `${out}\n<script>${runtimeJs}\n</script>`;
 }
 
 function applySourcePaletteGuard(liquid, sourceDesign) {

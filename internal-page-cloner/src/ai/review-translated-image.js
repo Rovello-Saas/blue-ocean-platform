@@ -34,21 +34,27 @@ const METRIC_LANGUAGES = new Set(['de', 'fr', 'es', 'it', 'nl']);
  * @param {Buffer} imageBuffer - The JPEG buffer nano-banana-pro returned
  * @param {string} targetLanguage - Language code ('en', 'de', ...) or 'same' for brand-only
  * @param {string} brandName - Target brand (e.g. 'Merivalo')
+ * @param {object} opts - { sourceBrandNames?: string[] }
  * @returns {Promise<{ acceptable: boolean, issues: string[], promptAddition: string }>}
  */
-async function reviewTranslatedImage(imageBuffer, targetLanguage, brandName) {
+async function reviewTranslatedImage(imageBuffer, targetLanguage, brandName, opts = {}) {
   const isBrandOnly = targetLanguage === 'same';
   const lang = isBrandOnly ? null : (LANGUAGE_NAMES[targetLanguage] || targetLanguage);
   const needsMetric = !isBrandOnly && METRIC_LANGUAGES.has(targetLanguage);
   const upper = brandName ? brandName.toUpperCase() : null;
+  const sourceBrandNames = Array.isArray(opts.sourceBrandNames)
+    ? opts.sourceBrandNames.filter(Boolean)
+    : [];
 
   const checklist = [];
   if (lang) checklist.push(`Every piece of visible text is in ${lang}. No leftover English, French, or any other non-${lang} words (including tiny badges, footer lines, size labels, and callouts).`);
   if (brandName) checklist.push(`Every brand wordmark / logo / tag text spells exactly "${brandName}" (uppercase form: "${upper}"). Read each one letter by letter. If any instance reads anything else — even a one-letter garble like "MEIVALO", "MERIVAIO", "MER1VALO", "MERIVAL0", or a fully unreadable scribble — it is a failure.`);
+  if (sourceBrandNames.length) checklist.push(`No source-brand text remains anywhere in the image. Forbidden source-brand words include: ${sourceBrandNames.map(b => `"${b}"`).join(', ')}. If any of those words appear on a device, graphic, watermark, label, alt-style overlay, or body text, it is a failure.`);
   if (brandName) checklist.push(`Small fabric tags / pillow labels / folded-corner labels either show "${upper}" cleanly, OR a clean single-letter "${brandName.charAt(0).toUpperCase()}" monogram, OR are blank. They must NEVER show garbled approximations of the brand.`);
   if (needsMetric) checklist.push(`All measurements are in metric units (cm, m, kg, g, °C, km). There should be no "inches", "inch", "lbs", "°F", or translated-but-still-imperial words like "Zoll".`);
   checklist.push(`No obviously corrupted / half-formed / partially-erased text anywhere.`);
   checklist.push(`Product photography, composition, background, icons, and non-text graphics look unchanged and natural (no visible AI smearing around edited regions).`);
+  checklist.push(`No new green/chroma-key background unless the source image itself clearly had that green background. For beauty/skincare product photos, white, cream, blush, beige, or transparent-looking backgrounds are preferred over green.`);
   // Fidelity checks — catches the nano-banana failure mode where a small care-tag
   // gets inflated into a hero banner, or size/spec labels are invented wholesale.
   if (brandName) checklist.push(`FIDELITY — brand-tag scale: every brand label looks like a plausible real-world product marking for this category. A fabric care-tag on a pillow is SMALL (a few cm / <5% of the pillow surface) and sits at an edge or corner. It does NOT span the center of the pillow, does NOT appear as a large hero banner, and is NOT more prominent than in a normal product photo. If any "${upper}" marking looks oversized, overly prominent, or like a cover-art banner rather than a discreet tag, it is a fidelity failure.`);
@@ -79,6 +85,8 @@ Rules:
     * "The previous render enlarged the care-tag into a full pillow banner. Keep the tag at its original small size (roughly 5% of the pillow surface, at the corner) — do not make the brand hero-sized."
     * "The previous render invented a 'Maße: 60 × 40 cm' callout that was not in the source. Do not add any size/dimension/spec text that wasn't clearly visible in the original."
     * "The previous render placed the brand name across the front of the pillow. Brand names must only appear on small fabric tags or existing label positions — never painted across the product surface."
+    * "The previous render introduced a green background. Preserve the source background palette; use white/cream/blush/neutral if the source did not have green."
+    * "The previous render still contained the forbidden source brand. Remove that wordmark completely or replace it at the same small source scale."
   Avoid vague additions like "be more careful" — always name the specific region, letter, or fabrication.`;
 
   const userMessage = `Review this edited product image against the checklist and respond with the JSON verdict.`;

@@ -9,6 +9,7 @@ const https = require('https');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const sharp = require('sharp');
 
 const LANGUAGE_NAMES = {
   en: 'English',
@@ -171,6 +172,55 @@ function download(url, destPath) {
       file.on('finish', () => { file.close(); resolve(); });
     }).on('error', (e) => { file.close(); reject(e); });
   });
+}
+
+async function bufferFromUrl(url) {
+  const tmpPath = path.join(require('os').tmpdir(), `image-safety-src-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`);
+  await download(url, tmpPath);
+  const buf = fs.readFileSync(tmpPath);
+  fs.unlinkSync(tmpPath);
+  return buf;
+}
+
+async function isGreenDominantImage(buffer) {
+  try {
+    const sample = await sharp(buffer)
+      .resize(8, 8, { fit: 'fill' })
+      .removeAlpha()
+      .raw()
+      .toBuffer();
+    let r = 0, g = 0, b = 0, count = 0;
+    for (let i = 0; i < sample.length; i += 3) {
+      r += sample[i];
+      g += sample[i + 1];
+      b += sample[i + 2];
+      count++;
+    }
+    if (!count) return false;
+    r /= count; g /= count; b /= count;
+    return g > 80 && g > r * 1.15 && g > b * 1.15;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function deterministicImageSafety(buffer, sourceUrl) {
+  const outputIsGreen = await isGreenDominantImage(buffer);
+  if (!outputIsGreen) return { acceptable: true, issues: [], promptAddition: '' };
+
+  let sourceIsGreen = false;
+  try {
+    sourceIsGreen = await isGreenDominantImage(await bufferFromUrl(sourceUrl));
+  } catch (e) {
+    sourceIsGreen = false;
+  }
+  if (sourceIsGreen) return { acceptable: true, issues: [], promptAddition: '' };
+
+  return {
+    acceptable: false,
+    issues: ['Edited image introduced a dominant green/chroma-key background that was not present in the source image.'],
+    promptAddition: 'The previous render introduced a green/chroma-key background. Preserve the original background palette and canvas; for skincare/product images use white, cream, blush, beige, or transparent-looking backgrounds, never green unless the source had green.'
+  };
 }
 
 function httpsJson(options, body = null) {
@@ -444,6 +494,7 @@ async function translateProductImages(imageUrls, targetLanguage, brandName, falA
   const policies = opts.policies || new Map();
   const faceRefUrl = opts.faceRefUrl || null;
   const googleApiKey = opts.googleApiKey || process.env.GOOGLE_IMAGEN_API_KEY || process.env.GEMINI_API_KEY || null;
+  const sourceBrandNames = Array.isArray(opts.sourceBrandNames) ? opts.sourceBrandNames : [];
 
   // Lazy-require to avoid circular-import surprises
   const { reviewTranslatedImage } = require('./review-translated-image');
@@ -494,7 +545,10 @@ async function translateProductImages(imageUrls, targetLanguage, brandName, falA
         let attempt = 0;
         const maxRetries = i === 0 ? maxReviewRetries : 1;
         while (attempt < maxRetries) {
-          const verdict = await reviewTranslatedImage(buffer, targetLanguage, brandName);
+          const deterministicVerdict = await deterministicImageSafety(buffer, url);
+          const verdict = deterministicVerdict.acceptable
+            ? await reviewTranslatedImage(buffer, targetLanguage, brandName, { sourceBrandNames })
+            : deterministicVerdict;
 
           if (verdict.acceptable) {
             if (i === 0) console.log(`  [translate] Canary review: PASS`);
@@ -522,7 +576,10 @@ async function translateProductImages(imageUrls, targetLanguage, brandName, falA
         }
 
         // If still failing after retries, try Google Imagen as a fallback.
-        const finalVerdict = await reviewTranslatedImage(buffer, targetLanguage, brandName);
+        const deterministicFinalVerdict = await deterministicImageSafety(buffer, url);
+        const finalVerdict = deterministicFinalVerdict.acceptable
+          ? await reviewTranslatedImage(buffer, targetLanguage, brandName, { sourceBrandNames })
+          : deterministicFinalVerdict;
         if (!finalVerdict.acceptable && googleApiKey) {
           console.log(`  [translate] Image ${i + 1} still failing QA after nano-banana retries — falling back to Google Imagen`);
           try {
@@ -533,7 +590,10 @@ async function translateProductImages(imageUrls, targetLanguage, brandName, falA
               (perImageOpts.extraInstruction ? `\n\nPER-IMAGE GUIDANCE:\n${perImageOpts.extraInstruction}` : '') +
               (calibratedPromptAddition ? `\n\nADDITIONAL GUIDANCE:\n${calibratedPromptAddition}` : '');
             const imagenBuffer = await translateImageWithImagen(url, fallbackPrompt, googleApiKey, costTracker);
-            const imagenVerdict = await reviewTranslatedImage(imagenBuffer, targetLanguage, brandName);
+            const deterministicImagenVerdict = await deterministicImageSafety(imagenBuffer, url);
+            const imagenVerdict = deterministicImagenVerdict.acceptable
+              ? await reviewTranslatedImage(imagenBuffer, targetLanguage, brandName, { sourceBrandNames })
+              : deterministicImagenVerdict;
             if (imagenVerdict.acceptable) {
               console.log(`  [translate] Imagen fallback PASS for image ${i + 1}`);
               buffer = imagenBuffer;
@@ -548,11 +608,9 @@ async function translateProductImages(imageUrls, targetLanguage, brandName, falA
             continue;
           }
         } else if (!finalVerdict.acceptable) {
-          // No Imagen key configured — log loudly and fall back to whatever
-          // nano-banana produced. The downstream upload will still ship it,
-          // but the rejected:false flag makes this distinguishable from a
-          // genuinely-good translation.
-          console.warn(`  [translate] Image ${i + 1} failed QA and no GOOGLE_IMAGEN_API_KEY set — shipping last nano-banana attempt`);
+          console.warn(`  [translate] Image ${i + 1} failed QA and no GOOGLE_IMAGEN_API_KEY set — marking image as rejected`);
+          results.push({ buffer: null, originalUrl: url, rejected: true, reason: 'qa-fail-no-fallback' });
+          continue;
         }
 
         if (i === 0 && calibratedPromptAddition) {
@@ -573,9 +631,16 @@ async function translateProductImages(imageUrls, targetLanguage, brandName, falA
           }) +
             (perImageOpts.extraInstruction ? `\n\nPER-IMAGE GUIDANCE:\n${perImageOpts.extraInstruction}` : '');
           const imagenBuffer = await translateImageWithImagen(url, fallbackPrompt, googleApiKey, costTracker);
-          console.log(`  [translate] Imagen recovered image ${i + 1}`);
-          results.push({ buffer: imagenBuffer, originalUrl: url });
-          continue;
+          const deterministicImagenVerdict = await deterministicImageSafety(imagenBuffer, url);
+          const imagenVerdict = deterministicImagenVerdict.acceptable
+            ? await reviewTranslatedImage(imagenBuffer, targetLanguage, brandName, { sourceBrandNames })
+            : deterministicImagenVerdict;
+          if (imagenVerdict.acceptable) {
+            console.log(`  [translate] Imagen recovered image ${i + 1}`);
+            results.push({ buffer: imagenBuffer, originalUrl: url });
+            continue;
+          }
+          console.warn(`  [translate] Imagen recovery failed QA — marking image ${i + 1} as rejected`);
         } catch (imagenErr) {
           console.warn(`  [translate] Imagen also errored on image ${i + 1}: ${imagenErr.message?.substring(0, 100)}`);
         }

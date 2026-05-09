@@ -5,10 +5,9 @@ const path = require('path');
 const https = require('https');
 const http = require('http');
 
-// Download an arbitrary image URL into a Node Buffer. Used as a fallback when
-// Nano Banana translation fails for a content image — we still want the image
-// hosted on Shopify CDN (so the body section doesn't leak a solawave.co URL),
-// even if it ships untranslated.
+// Download an arbitrary image URL into a Node Buffer. Used only for assets that
+// are explicitly safe to pass through. Risky source images are no longer
+// uploaded as originals when AI editing fails.
 function fetchImageBuffer(url, maxBytes = 8 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     let target;
@@ -337,6 +336,78 @@ function replaceImageUrlReferences(content, oldUrl, newUrl) {
   return { content: out, changed };
 }
 
+function deriveSourceBrandTerms(sourceUrl, explicit = []) {
+  const terms = new Set((explicit || []).filter(Boolean).map(s => String(s).toLowerCase()));
+  try {
+    const host = new URL(sourceUrl).hostname.replace(/^www\./, '');
+    const stem = host.split('.')[0].toLowerCase();
+    if (stem.length >= 3) terms.add(stem);
+    const compound = stem.match(/^([a-z]{3,})(health|sleep|shop|store|brand|life|home|skin|skincare|beauty)$/i);
+    if (compound) terms.add(compound[1].toLowerCase());
+  } catch (e) {}
+  ['solawave', 'mellow', 'mellowsleep'].forEach(t => terms.add(t));
+  return [...terms].filter(t => t.length >= 3);
+}
+
+function sanitizeLiquidBeforePublish(liquidContent, ctx = {}) {
+  let out = liquidContent || '';
+  const brandName = ctx.brandName || 'Movanella';
+  const targetLanguage = ctx.targetLanguage || null;
+  const sourceBrandTerms = ctx.sourceBrandTerms || [];
+
+  // Remove/rewrite source-brand leftovers anywhere in the Liquid, including
+  // image alt attributes created from source labels. This is deliberately
+  // broad: visible copy, comments, and attributes should all be clean.
+  for (const term of sourceBrandTerms) {
+    if (!term || term.toLowerCase() === brandName.toLowerCase()) continue;
+    const re = new RegExp(`\\b${escapeRegExp(term)}\\b`, 'gi');
+    out = out.replace(re, brandName);
+  }
+
+  // Clean specific awkward mixed-language leftovers we keep seeing on German
+  // skincare clones. Keep this tiny and deterministic; broader translation
+  // remains the AI/copy pass' job.
+  if (targetLanguage === 'de') {
+    const replacements = [
+      [/\bandere Wands\b/g, 'andere Geräte'],
+      [/\bAndere Wands\b/g, 'Andere Geräte'],
+      [/\bSkincare Wand\b/g, 'Hautpflege-Stab'],
+      [/\bskincare wand\b/g, 'Hautpflege-Stab'],
+      [/\bLight Therapy\b/g, 'Lichttherapie'],
+      [/\bReal Results\b/g, 'Echte Ergebnisse'],
+      [/\bDay 0\b/g, 'Tag 0'],
+      [/\bDay 30\b/g, 'Tag 30']
+    ];
+    for (const [from, to] of replacements) {
+      out = out.replace(from, to);
+    }
+  }
+
+  return out;
+}
+
+function isOriginalFallbackAllowed(item, policy) {
+  // Only permit originals for images explicitly marked safe by policy. Today
+  // every regular source image goes through IP-safe rewrite, so default=false.
+  if (item?.skipped) return false;
+  return !!policy?.allowOriginalFallback;
+}
+
+function stripRejectedImageReferences(liquidContent, rejectedSourceUrls) {
+  let out = liquidContent;
+  let stripped = 0;
+  for (const rejUrl of rejectedSourceUrls) {
+    const escaped = rejUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/&/g, '(?:&|&amp;)');
+    const figureRe = new RegExp(`<figure\\b[^>]*>(?:(?!<\\/figure>)[\\s\\S])*?${escaped}(?:(?!<\\/figure>)[\\s\\S])*?<\\/figure>`, 'gi');
+    out = out.replace(figureRe, () => { stripped++; return '<!-- image rejected: source brand or untranslatable -->'; });
+    const pictureRe = new RegExp(`<picture\\b[^>]*>(?:(?!<\\/picture>)[\\s\\S])*?${escaped}(?:(?!<\\/picture>)[\\s\\S])*?<\\/picture>`, 'gi');
+    out = out.replace(pictureRe, () => { stripped++; return '<!-- image rejected: source brand or untranslatable -->'; });
+    const imgRe = new RegExp(`<img\\b[^>]*${escaped}[^>]*>`, 'gi');
+    out = out.replace(imgRe, () => { stripped++; return '<!-- image rejected -->'; });
+  }
+  return { liquidContent: out, stripped };
+}
+
 // POST /api/jobs - Start a clone job
 router.post('/jobs', (req, res) => {
   const { url, storeId, targetLanguage } = req.body;
@@ -536,6 +607,8 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
     for (const [src, purpose] of classifications) {
       policiesByUrl.set(src, { ...policyFor(purpose), purpose });
     }
+    const sourceBrandTerms = deriveSourceBrandTerms(url);
+    console.log(`[${jobId}]   Source-brand terms blocked in copy/images: ${sourceBrandTerms.join(', ') || 'none'}`);
 
     const droppedFromOutput = [];
     productMeta.images = productMeta.images.filter(img => {
@@ -892,8 +965,8 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
       // and we fall back to the original URL.
       let translated;
       if (!falApiKey && !googleApiKey) {
-        console.warn(`[${jobId}] No FAL_API_KEY or GEMINI_API_KEY found — uploading originals (no Nano Banana edits)`);
-        translated = allImageUrls.map(u => ({ originalUrl: u, buffer: null }));
+        console.warn(`[${jobId}] No FAL_API_KEY or GEMINI_API_KEY found — rejecting source images instead of uploading originals`);
+        translated = allImageUrls.map(u => ({ originalUrl: u, buffer: null, rejected: true, reason: 'no-image-editor-key' }));
       } else {
         // Generate one reference face per job IF any image needs face-swap.
         // Same face is reused across every face-swap call, so the cloned
@@ -930,7 +1003,8 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
             costTracker,
             policies: policiesByUrl,
             faceRefUrl: jobFaceUrl,
-            googleApiKey
+            googleApiKey,
+            sourceBrandNames: sourceBrandTerms
           }
         );
       }
@@ -950,6 +1024,7 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
         return 'jpg';
       };
 
+      let safeGalleryUploads = 0;
       for (let i = 0; i < translated.length; i++) {
         const item = translated[i];
         const isGallery = i < galleryCount;
@@ -980,31 +1055,37 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
                   position: i + 1
                 }
               }, storeId);
-            } else {
+            } else if (isOriginalFallbackAllowed(item, policiesByUrl.get(item.originalUrl))) {
               res = await restApi('POST', `/products/${productId}/images.json`, {
                 image: { src: item.originalUrl, position: i + 1 }
               }, storeId);
+            } else {
+              console.warn(`  [Shopify] Gallery image ${i + 1} has no safe edited buffer — rejecting original fallback`);
+              rejectedSourceUrls.add(item.originalUrl);
+              continue;
             }
             if (res?.image?.src) urlMap[item.originalUrl] = res.image.src;
+            safeGalleryUploads++;
             console.log(`  [Shopify] Gallery ${i + 1}/${galleryCount}`);
           } else if (themeId) {
             // Content: CDN-hosted via theme asset, NOT visible in product card.
-            // Prefer the translated buffer; if Nano Banana failed (no buffer),
-            // fetch the original image and upload it untranslated. Either way
-            // the image ends up on Shopify CDN so the body section doesn't
-            // leak a solawave.co reference. The QA "X references to source
-            // domain remain" warning was driven entirely by skipping this
-            // upload when translation failed.
+            // Prefer the edited buffer. Do not silently upload source originals
+            // for risky assets; that is how source-brand/product images leaked
+            // into live cloned PDPs.
             let buffer = item.buffer;
-            if (!buffer) {
+            if (!buffer && isOriginalFallbackAllowed(item, policiesByUrl.get(item.originalUrl))) {
               try {
                 buffer = await fetchImageBuffer(item.originalUrl);
-                console.log(`  [Shopify] Translation missed image ${i + 1}, uploading original buffer instead`);
+                console.log(`  [Shopify] Translation skipped safe-pass image ${i + 1}, uploading original buffer`);
               } catch (fetchErr) {
                 console.warn(`  [Shopify] Could not fetch original for ${item.originalUrl}: ${fetchErr.message?.substring(0, 100)}`);
               }
             }
-            if (!buffer) continue;
+            if (!buffer) {
+              console.warn(`  [Shopify] Content image ${i + 1} has no safe edited buffer — rejecting original fallback`);
+              rejectedSourceUrls.add(item.originalUrl);
+              continue;
+            }
             const ext = guessExt(item.originalUrl);
             const seq = i - galleryCount + 1;
             const assetKey = `assets/cloned-${safeHandle}-${seq}.${ext}`;
@@ -1024,6 +1105,9 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
           console.warn(`  [Shopify] ${where} image ${i + 1} upload failed: ${imgErr.message?.substring(0, 120)}`);
         }
       }
+      if (galleryCount > 0 && safeGalleryUploads === 0) {
+        throw new Error('All gallery images failed IP-safe editing. Refusing to publish a product with original/source-branded gallery images.');
+      }
     }
 
     // Strip rejected images from the liquid before any URL rewriting so we
@@ -1032,15 +1116,9 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
     // shipping the source asset would put English text and the source brand
     // wordmark on a Movanella page, which is what we're explicitly avoiding.
     if (rejectedSourceUrls && rejectedSourceUrls.size > 0) {
-      let stripped = 0;
-      for (const rejUrl of rejectedSourceUrls) {
-        const escaped = rejUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/&/g, '(?:&|&amp;)');
-        // Drop entire <img>/<figure>/<picture> blocks that reference the URL.
-        const figureRe = new RegExp(`<figure\\b[^>]*>(?:(?!<\\/figure>)[\\s\\S])*?${escaped}(?:(?!<\\/figure>)[\\s\\S])*?<\\/figure>`, 'gi');
-        liquidContent = liquidContent.replace(figureRe, () => { stripped++; return '<!-- image rejected: source brand or untranslatable -->'; });
-        const imgRe = new RegExp(`<img\\b[^>]*${escaped}[^>]*>`, 'gi');
-        liquidContent = liquidContent.replace(imgRe, () => { stripped++; return '<!-- image rejected -->'; });
-      }
+      const strippedResult = stripRejectedImageReferences(liquidContent, rejectedSourceUrls);
+      liquidContent = strippedResult.liquidContent;
+      const stripped = strippedResult.stripped;
       if (stripped > 0) {
         console.log(`[${jobId}]   Stripped ${stripped} rejected image reference(s) from liquid`);
       }
@@ -1119,6 +1197,35 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
 
       console.log(`[${jobId}]   Rewrote ${replaced} source-image URL(s) in liquid → Shopify CDN`);
       urlRewriteCount = replaced;
+    }
+
+    liquidContent = sanitizeLiquidBeforePublish(liquidContent, {
+      brandName,
+      targetLanguage,
+      sourceBrandTerms
+    });
+    fs.writeFileSync(liquidPath, liquidContent);
+
+    // Pre-publish gate: do not push live pages that still contain source-brand
+    // names or original source images. The later QA report is still kept for
+    // the UI, but these critical failures now stop the run before publish.
+    const prePublishQa = runPostCloneQa({
+      sourceUrl: url,
+      targetLanguage,
+      brandName,
+      productTitle: productMeta.title,
+      productMeta: {
+        title: productMeta.title,
+        description: rawDescription
+      },
+      scrapedImageUrls: allImageUrls,
+      uploadedImageUrls: Object.values(urlMap),
+      liquidContent,
+      urlRewriteCount
+    });
+    if (!prePublishQa.pass) {
+      console.error(`[${jobId}] Pre-publish QA failed:\n${formatQaReport(prePublishQa)}`);
+      throw new Error(`Pre-publish QA failed: ${prePublishQa.errors.slice(0, 2).join(' | ')}`);
     }
 
     if (targetLanguage) {
