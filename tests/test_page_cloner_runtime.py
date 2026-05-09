@@ -93,6 +93,7 @@ def test_enotempty_install_error_cleans_and_retries(monkeypatch, tmp_path):
 def test_stale_chrome_marker_does_not_skip_browser_install(monkeypatch, tmp_path):
     (tmp_path / ".chrome-install-complete").write_text("ok\n")
     monkeypatch.setattr(runtime.shutil, "which", lambda binary: f"/usr/bin/{binary}")
+    monkeypatch.setattr(runtime, "_find_system_chrome", lambda: None)
 
     commands = []
 
@@ -109,4 +110,52 @@ def test_stale_chrome_marker_does_not_skip_browser_install(monkeypatch, tmp_path
     assert commands
     assert commands[0][0] == ["npx", "puppeteer", "browsers", "install", "chrome"]
     assert commands[0][1] == tmp_path
+    assert (tmp_path / ".chrome-install-complete").read_text() == "ok\n"
+
+
+def test_system_chrome_skips_browser_install(monkeypatch, tmp_path):
+    browser = tmp_path / "Google Chrome"
+    browser.write_text("")
+    env = {"PUPPETEER_CACHE_DIR": str(tmp_path / "missing-puppeteer-cache")}
+    monkeypatch.setattr(runtime, "_find_system_chrome", lambda: browser)
+
+    commands = []
+    monkeypatch.setattr(
+        runtime,
+        "_run_setup_command",
+        lambda command, *, cwd, env, timeout, failure_message: commands.append(command),
+    )
+
+    runtime._ensure_chrome(tmp_path, env)
+
+    assert commands == []
+    assert env["PUPPETEER_EXECUTABLE_PATH"] == str(browser)
+    assert (tmp_path / ".chrome-install-complete").read_text() == f"system:{browser}\n"
+
+
+def test_browser_install_cache_error_cleans_and_retries(monkeypatch, tmp_path):
+    cache_dir = tmp_path / "puppeteer-cache"
+    cache_dir.mkdir()
+    (cache_dir / "partial.zip").write_text("bad zip")
+    monkeypatch.setattr(runtime, "_find_system_chrome", lambda: None)
+    monkeypatch.setattr(runtime.shutil, "which", lambda binary: f"/usr/bin/{binary}")
+
+    commands = []
+    cleanups = []
+    monkeypatch.setattr(runtime, "_safe_remove_tree", lambda path: cleanups.append(path))
+
+    def fake_run_setup_command(command, *, cwd, env, timeout, failure_message):
+        commands.append(command)
+        if len(commands) == 1:
+            raise RuntimeError("DefaultProvider: end of central directory record signature not found")
+
+    monkeypatch.setattr(runtime, "_run_setup_command", fake_run_setup_command)
+
+    runtime._ensure_chrome(tmp_path, {"PUPPETEER_CACHE_DIR": str(cache_dir)})
+
+    assert commands == [
+        ["npx", "puppeteer", "browsers", "install", "chrome"],
+        ["npx", "puppeteer", "browsers", "install", "chrome@stable"],
+    ]
+    assert cleanups == [cache_dir]
     assert (tmp_path / ".chrome-install-complete").read_text() == "ok\n"

@@ -26,6 +26,26 @@ _PROCESS_LOG: Optional[TextIO] = None
 _INSTALL_DONE = False
 _CHROME_INSTALL_DONE = False
 _SETUP_OUTPUT_LIMIT = 4000
+_BROWSER_ENV_KEYS = (
+    "PUPPETEER_EXECUTABLE_PATH",
+    "CHROME_PATH",
+    "GOOGLE_CHROME_BIN",
+    "CHROMIUM_PATH",
+)
+_BROWSER_APP_CANDIDATES = (
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+)
+_BROWSER_BIN_CANDIDATES = (
+    "google-chrome-stable",
+    "google-chrome",
+    "chromium-browser",
+    "chromium",
+    "microsoft-edge-stable",
+    "microsoft-edge",
+)
 
 
 def _is_local_url(url: str) -> bool:
@@ -111,6 +131,66 @@ def _safe_remove_tree(path: Path) -> None:
         path.rmdir()
     except OSError:
         pass
+
+
+def _is_usable_browser_path(path: str | Path | None) -> bool:
+    if not path:
+        return False
+    try:
+        return Path(path).exists()
+    except (OSError, TypeError):
+        return False
+
+
+def _find_system_chrome() -> Optional[Path]:
+    for env_key in _BROWSER_ENV_KEYS:
+        candidate = os.environ.get(env_key)
+        if _is_usable_browser_path(candidate):
+            return Path(candidate)
+
+    for candidate in _BROWSER_APP_CANDIDATES:
+        if _is_usable_browser_path(candidate):
+            return Path(candidate)
+
+    for binary in _BROWSER_BIN_CANDIDATES:
+        candidate = shutil.which(binary)
+        if candidate and _is_usable_browser_path(candidate):
+            return Path(candidate)
+
+    return None
+
+
+def _env_browser_path(env: dict) -> Optional[Path]:
+    for env_key in _BROWSER_ENV_KEYS:
+        candidate = env.get(env_key)
+        if _is_usable_browser_path(candidate):
+            return Path(candidate)
+    return None
+
+
+def _chrome_marker_is_current(chrome_marker: Path, chrome_cache: Path) -> bool:
+    if not chrome_marker.exists():
+        return False
+    try:
+        marker = chrome_marker.read_text().strip()
+    except OSError:
+        return False
+    if marker.startswith("system:"):
+        return _is_usable_browser_path(marker.removeprefix("system:"))
+    return marker == "ok" and chrome_cache.exists()
+
+
+def _is_browser_install_cache_error(error: RuntimeError) -> bool:
+    message = str(error).lower()
+    return any(
+        phrase in message
+        for phrase in (
+            "end of central directory",
+            "all providers failed",
+            "zip",
+            "corrupt",
+        )
+    )
 
 
 def _move_aside_node_modules(node_modules: Path) -> None:
@@ -241,6 +321,10 @@ def _runtime_env(base_url: str) -> dict:
     env.setdefault("PLATFORM_API_URL", "http://127.0.0.1:8501")
     env.setdefault("PUPPETEER_CACHE_DIR", str(PROJECT_ROOT / ".cache" / "puppeteer"))
     env.setdefault("npm_config_cache", str(PROJECT_ROOT / ".cache" / "npm"))
+    if not env.get("PUPPETEER_EXECUTABLE_PATH"):
+        system_chrome = _find_system_chrome()
+        if system_chrome:
+            env["PUPPETEER_EXECUTABLE_PATH"] = str(system_chrome)
     return env
 
 
@@ -248,20 +332,39 @@ def _ensure_chrome(cloner_dir: Path, env: dict) -> None:
     global _CHROME_INSTALL_DONE
     chrome_marker = cloner_dir / ".chrome-install-complete"
     chrome_cache = Path(env["PUPPETEER_CACHE_DIR"])
-    if _CHROME_INSTALL_DONE or (chrome_marker.exists() and chrome_cache.exists()):
+    if _CHROME_INSTALL_DONE or _chrome_marker_is_current(chrome_marker, chrome_cache):
+        _CHROME_INSTALL_DONE = True
+        return
+
+    system_chrome = _env_browser_path(env) or _find_system_chrome()
+    if system_chrome:
+        env["PUPPETEER_EXECUTABLE_PATH"] = str(system_chrome)
+        chrome_marker.write_text(f"system:{system_chrome}\n")
         _CHROME_INSTALL_DONE = True
         return
 
     if not shutil.which("npx"):
         raise RuntimeError("npx is not available, so the built-in page cloner cannot install Chrome.")
 
-    _run_setup_command(
-        ["npx", "puppeteer", "browsers", "install", "chrome"],
-        cwd=cloner_dir,
-        env=env,
-        timeout=300,
-        failure_message="The built-in page cloner could not install Chrome for Puppeteer.",
-    )
+    try:
+        _run_setup_command(
+            ["npx", "puppeteer", "browsers", "install", "chrome"],
+            cwd=cloner_dir,
+            env=env,
+            timeout=300,
+            failure_message="The built-in page cloner could not install Chrome for Puppeteer.",
+        )
+    except RuntimeError as exc:
+        if not _is_browser_install_cache_error(exc):
+            raise
+        _safe_remove_tree(chrome_cache)
+        _run_setup_command(
+            ["npx", "puppeteer", "browsers", "install", "chrome@stable"],
+            cwd=cloner_dir,
+            env=env,
+            timeout=300,
+            failure_message="The built-in page cloner could not install Chrome for Puppeteer after cleaning the browser cache.",
+        )
     chrome_marker.write_text("ok\n")
     _CHROME_INSTALL_DONE = True
 

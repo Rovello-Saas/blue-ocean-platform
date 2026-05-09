@@ -23,10 +23,14 @@ async function scrapeLooxReviews(productUrl, options = {}) {
 
   try {
     if (!browser) {
-      browser = await puppeteer.launch({
+      const launchOptions = {
         headless: 'new',
         args: ['--no-sandbox', '--disable-setuid-sandbox']
-      });
+      };
+      if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+        launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+      }
+      browser = await puppeteer.launch(launchOptions);
       ownBrowser = true;
     }
 
