@@ -879,6 +879,34 @@ class ResearchPipeline:
         total_ali = len(passed_competition)
         _progress("Matching AliExpress", 0, total_ali)
         products_to_write = []
+        used_ali_product_keys: set[str] = set()
+        try:
+            import json as _json_ali_dedupe
+            for existing_product in self.store.get_products():
+                if getattr(existing_product, "aliexpress_url", ""):
+                    used_ali_product_keys.update(
+                        aliexpress.product_identity_keys(url=existing_product.aliexpress_url)
+                    )
+                raw_top3 = getattr(existing_product, "aliexpress_top3_json", "") or ""
+                if raw_top3:
+                    try:
+                        for item in _json_ali_dedupe.loads(raw_top3):
+                            if isinstance(item, dict):
+                                used_ali_product_keys.update(
+                                    aliexpress.product_identity_keys(
+                                        {"title": item.get("title", "")},
+                                        url=item.get("url", ""),
+                                    )
+                                )
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.warning("Could not load existing AliExpress URLs for dedupe: %s", e)
+        if used_ali_product_keys:
+            logger.info(
+                "AliExpress supplier dedupe: excluding %d existing supplier key(s)",
+                len(used_ali_product_keys),
+            )
         # Unmatched keywords (no AliExpress DS-feed match) no longer create
         # Product rows — they land in the Research Inbox as keyword-only
         # rows for the user to source by hand. See the unmatched branch
@@ -912,6 +940,7 @@ class ResearchPipeline:
                     config=self.config,
                     english_search_terms=english_terms,
                     category=llm_category,
+                    exclude_product_keys=used_ali_product_keys,
                 )
 
                 best_seller = top3.get("best_seller")
@@ -945,6 +974,7 @@ class ResearchPipeline:
 
                 kw_data["aliexpress_match"] = best_seller
                 stats["products_matched"] += 1
+                used_ali_product_keys.update(aliexpress.product_identity_keys(best_seller))
 
                 # Capture match diagnostics (which feed, which pass/strategy,
                 # what title was used as the needle context) so we can later

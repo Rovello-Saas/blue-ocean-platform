@@ -36,8 +36,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import re
 import time
 from typing import Optional
+from urllib.parse import parse_qs, urlparse
 
 import requests
 
@@ -199,6 +201,71 @@ def _prioritised_feed_order(category: Optional[str]) -> list[str]:
 # iterates over many keywords back-to-back. Keyed by (feed, page_no, page_size).
 _FEED_CACHE: dict[tuple, tuple[float, list[dict]]] = {}
 _FEED_CACHE_TTL_SECONDS = 300  # 5 min
+
+
+def extract_product_id_from_url(url: str) -> str:
+    """Best-effort AliExpress product-id extraction from common item URLs."""
+    if not url:
+        return ""
+    raw = str(url)
+    try:
+        parsed = urlparse(raw)
+        query_id = (parse_qs(parsed.query).get("id") or [""])[0]
+        if query_id:
+            return str(query_id).strip()
+        m = re.search(r"/item/(\d+)(?:\.html)?", parsed.path or "")
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    m = re.search(r"(?:/item/|[?&]id=)(\d+)", raw)
+    return m.group(1) if m else ""
+
+
+def _url_key(url: str) -> str:
+    if not url:
+        return ""
+    try:
+        parsed = urlparse(str(url).strip())
+        if not parsed.netloc:
+            return ""
+        return f"url:{parsed.netloc.lower()}{parsed.path.lower().rstrip('/')}"
+    except Exception:
+        return ""
+
+
+def _title_key(title: str) -> str:
+    if not title:
+        return ""
+    words = re.findall(r"[\w]+", str(title).lower(), flags=re.UNICODE)
+    normalized = " ".join(words)
+    return f"title:{normalized[:180]}" if normalized else ""
+
+
+def product_identity_keys(product: Optional[dict] = None, url: str = "") -> set[str]:
+    """Return stable keys used to avoid picking the same AliExpress listing.
+
+    The DS feed gives us a product id, but older sheet rows only have a URL.
+    Keep both so new runs can avoid duplicates from both sources.
+    """
+    keys: set[str] = set()
+    product = product or {}
+    pid = str(
+        product.get("aliexpress_product_id")
+        or product.get("product_id")
+        or product.get("id")
+        or ""
+    ).strip()
+    if not pid:
+        pid = extract_product_id_from_url(url or product.get("url") or "")
+    if pid:
+        keys.add(f"id:{pid}")
+    url_value = url or product.get("url") or product.get("product_detail_url") or ""
+    if key := _url_key(url_value):
+        keys.add(key)
+    if key := _title_key(product.get("title") or ""):
+        keys.add(key)
+    return keys
 
 
 # -----------------------------------------------------------------------------
@@ -468,6 +535,7 @@ def search_products(
     config: AppConfig = None,
     english_search_terms: Optional[list[str]] = None,
     category: Optional[str] = None,
+    exclude_product_keys: Optional[set[str]] = None,
 ) -> list[dict]:
     """
     Find products matching a keyword using the feed-filter fallback.
@@ -539,6 +607,7 @@ def search_products(
     matches: list[dict] = []
     max_pages_per_feed = 8
     seen_ids: set[str] = set()
+    excluded_keys = set(exclude_product_keys or set())
 
     # Category-aware feed ordering: hoist the category-relevant feed to the
     # front of the queue. Unmatched categories get the default order.
@@ -564,6 +633,9 @@ def search_products(
                 for p in page_products:
                     pid = str(p.get("aliexpress_product_id") or p.get("product_id") or "")
                     if pid and pid in seen_ids:
+                        continue
+                    keys = product_identity_keys(p)
+                    if keys and keys.intersection(excluded_keys):
                         continue
                     title = p.get("title") or ""
                     via = strategy_fn(title)
@@ -729,6 +801,7 @@ def find_top3_matches(
     config: AppConfig = None,
     english_search_terms: Optional[list[str]] = None,
     category: Optional[str] = None,
+    exclude_product_keys: Optional[set[str]] = None,
 ) -> dict:
     """
     Return the **Top 3** products for a keyword:
@@ -777,6 +850,7 @@ def find_top3_matches(
         config=config,
         english_search_terms=english_search_terms,
         category=category,
+        exclude_product_keys=exclude_product_keys,
     )
 
     result: dict = {
