@@ -879,32 +879,10 @@ class ResearchPipeline:
         total_ali = len(passed_competition)
         _progress("Matching AliExpress", 0, total_ali)
         products_to_write = []
-        used_ali_product_keys: set[str] = set()
-        try:
-            import json as _json_ali_dedupe
-            for existing_product in self.store.get_products():
-                if getattr(existing_product, "aliexpress_url", ""):
-                    used_ali_product_keys.update(
-                        aliexpress.product_identity_keys(url=existing_product.aliexpress_url)
-                    )
-                raw_top3 = getattr(existing_product, "aliexpress_top3_json", "") or ""
-                if raw_top3:
-                    try:
-                        for item in _json_ali_dedupe.loads(raw_top3):
-                            if isinstance(item, dict):
-                                used_ali_product_keys.update(
-                                    aliexpress.product_identity_keys(
-                                        {"title": item.get("title", "")},
-                                        url=item.get("url", ""),
-                                    )
-                                )
-                    except Exception:
-                        pass
-        except Exception as e:
-            logger.warning("Could not load existing AliExpress URLs for dedupe: %s", e)
+        used_ali_product_keys = self._collect_shown_aliexpress_product_keys(country)
         if used_ali_product_keys:
             logger.info(
-                "AliExpress supplier dedupe: excluding %d existing supplier key(s)",
+                "AliExpress supplier dedupe: excluding %d previously shown supplier key(s)",
                 len(used_ali_product_keys),
             )
         # Unmatched keywords (no AliExpress DS-feed match) no longer create
@@ -1783,6 +1761,55 @@ class ResearchPipeline:
         self._finalize_costs(cost_tracker, stats)
 
         return stats
+
+    def _collect_shown_aliexpress_product_keys(self, country: str = "") -> set[str]:
+        """Collect supplier identities that have already been shown anywhere.
+
+        A supplier can be "shown" without ever becoming a Product row: the
+        Research inbox stores top-3 AliExpress cards on KeywordResearch rows.
+        Those must count too, otherwise repeat Discover runs keep surfacing
+        the same top-seller cards even after the user has already seen them.
+        """
+        import json as _json_ali_dedupe
+
+        keys: set[str] = set()
+
+        def _add_top3(raw_top3: str) -> None:
+            if not raw_top3:
+                return
+            try:
+                items = _json_ali_dedupe.loads(raw_top3)
+            except Exception:
+                return
+            if not isinstance(items, list):
+                return
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                keys.update(
+                    aliexpress.product_identity_keys(
+                        {"title": item.get("title", "")},
+                        url=item.get("url", ""),
+                    )
+                )
+
+        try:
+            for kw in self.store.get_keywords(country=country or None):
+                if getattr(kw, "aliexpress_url", ""):
+                    keys.update(aliexpress.product_identity_keys(url=kw.aliexpress_url))
+                _add_top3(getattr(kw, "aliexpress_top3_json", "") or "")
+        except Exception as e:
+            logger.warning("Could not load keyword supplier history for dedupe: %s", e)
+
+        try:
+            for product in self.store.get_products(country=country or None):
+                if getattr(product, "aliexpress_url", ""):
+                    keys.update(aliexpress.product_identity_keys(url=product.aliexpress_url))
+                _add_top3(getattr(product, "aliexpress_top3_json", "") or "")
+        except Exception as e:
+            logger.warning("Could not load product supplier history for dedupe: %s", e)
+
+        return keys
 
     def _build_product_entry(
         self,

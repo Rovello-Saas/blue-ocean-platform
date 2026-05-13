@@ -1,4 +1,7 @@
 from src.research import aliexpress
+from src.core.memory_store import InMemoryDataStore
+from src.core.models import KeywordResearch, Product
+from src.research.pipeline import ResearchPipeline
 
 
 def test_product_identity_keys_extracts_item_id_from_url():
@@ -48,3 +51,31 @@ def test_search_products_skips_excluded_supplier(monkeypatch):
     )
 
     assert [p["aliexpress_product_id"] for p in matches] == ["222"]
+
+
+def test_pipeline_dedupes_suppliers_shown_in_keyword_history():
+    store = InMemoryDataStore()
+    store.add_keyword(
+        KeywordResearch(
+            country="DE",
+            aliexpress_url="https://www.aliexpress.com/item/111.html",
+            aliexpress_top3_json=(
+                '[{"title":"Reusable Kitchen Mat","url":"https://www.aliexpress.com/item/222.html"}]'
+            ),
+        )
+    )
+    store.add_product(
+        Product(
+            country="DE",
+            aliexpress_top3_json=(
+                '[{"title":"Foldable Storage Box","url":"https://www.aliexpress.com/item/333.html"}]'
+            ),
+        )
+    )
+
+    keys = ResearchPipeline(store)._collect_shown_aliexpress_product_keys("DE")
+
+    assert "id:111" in keys
+    assert "id:222" in keys
+    assert "title:reusable kitchen mat" in keys
+    assert "id:333" in keys
