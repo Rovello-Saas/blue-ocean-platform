@@ -56,7 +56,7 @@ logger = logging.getLogger(__name__)
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _country_codes(countries_list) -> list[str]:
+def _configured_country_codes(countries_list) -> list[str]:
     codes = []
     for c in countries_list:
         if isinstance(c, dict):
@@ -64,8 +64,16 @@ def _country_codes(countries_list) -> list[str]:
         elif isinstance(c, str) and len(c) == 2:
             codes.append(c.upper())
 
-    # US is a first-class supported market, even when older Sheet settings
-    # were saved before US existed in the Settings country picker.
+    return list(dict.fromkeys(codes))
+
+
+def _country_codes(countries_list) -> list[str]:
+    codes = _configured_country_codes(countries_list)
+
+    # Show US as a first-class filter/manual-entry option even when older
+    # Sheet settings were saved before US existed in the Settings picker.
+    # Discovery runs use _configured_country_codes() unless the user has
+    # explicitly selected a country in the Research filter.
     if "US" not in codes:
         codes.append("US")
     return list(dict.fromkeys(codes)) or ["DE", "US"]
@@ -216,7 +224,10 @@ def main():
     with top_add_discover:
         discover_clicked = st.button(
             "🔬 Discover more",
-            help="Run the full AI discovery pipeline and add new keywords to this inbox.",
+            help=(
+                "Run discovery for the selected Country filter below. "
+                "When Country is All, it runs all Target Countries from Settings."
+            ),
             use_container_width=True,
             type="primary",
         )
@@ -234,7 +245,11 @@ def main():
     # level registry on every rerun, so the run is "attached" whenever the
     # user is on this page and silently running otherwise.
     if discover_clicked:
-        _start_background_discovery(store, config)
+        _start_background_discovery(
+            store,
+            config,
+            selected_country=st.session_state.get("res_filter_country", "All"),
+        )
 
     _render_discovery_status_panel()
 
@@ -1182,13 +1197,16 @@ def _render_manual_form(store, config, country_codes):
 # status panel that picks up whatever's active whenever the user is on this
 # page. The thread is `daemon=True` so it won't hang the dashboard on exit.
 
-def _start_background_discovery(store, config):
+def _start_background_discovery(store, config, selected_country: str = "All"):
     """Kick off a Discover run in a background thread. Returns immediately.
     The run_id is stashed in session state so this page (and any other that
     chooses to surface it) can render progress on subsequent reruns."""
     from dashboard import background_runs
 
-    codes = _country_codes(config.countries)
+    if selected_country and selected_country != "All":
+        codes = [selected_country]
+    else:
+        codes = _configured_country_codes(config.countries)
     if not codes:
         st.warning("No countries configured — add one in Settings first.")
         return

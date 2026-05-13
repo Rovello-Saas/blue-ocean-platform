@@ -224,6 +224,8 @@ def start_discovery(store, config, country_codes: list[str]) -> str:
 def _country_language(countries_list, code: str) -> str:
     """Mirror of the helper in 2_Research.py — we keep a local copy so this
     module has no dashboard-view dependencies."""
+    if code == "US":
+        return "en"
     for c in countries_list:
         if isinstance(c, dict) and c.get("code") == code:
             return c.get("language", "de")
