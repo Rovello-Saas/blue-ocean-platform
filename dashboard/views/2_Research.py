@@ -60,13 +60,20 @@ def _country_codes(countries_list) -> list[str]:
     codes = []
     for c in countries_list:
         if isinstance(c, dict):
-            codes.append(c.get("code", "DE"))
+            codes.append(str(c.get("code", "DE")).upper())
         elif isinstance(c, str) and len(c) == 2:
-            codes.append(c)
-    return codes or ["DE"]
+            codes.append(c.upper())
+
+    # US is a first-class supported market, even when older Sheet settings
+    # were saved before US existed in the Settings country picker.
+    if "US" not in codes:
+        codes.append("US")
+    return list(dict.fromkeys(codes)) or ["DE", "US"]
 
 
 def _country_language(countries_list, code: str) -> str:
+    if code == "US":
+        return "en"
     for c in countries_list:
         if isinstance(c, dict) and c.get("code") == code:
             return c.get("language", "de")

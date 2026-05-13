@@ -106,7 +106,10 @@ class AppConfig:
 
     @property
     def countries(self) -> list[dict]:
-        default = [{"code": "DE", "name": "Germany", "language": "de", "currency": "EUR"}]
+        default = [
+            {"code": "DE", "name": "Germany", "language": "de", "currency": "EUR"},
+            {"code": "US", "name": "United States", "language": "en", "currency": "USD"},
+        ]
         raw = self.get("global.countries", default)
 
         # If it's already a proper list of dicts, return as-is
@@ -134,7 +137,9 @@ class AppConfig:
                 if isinstance(item, dict):
                     result.append(item)
                 elif isinstance(item, str) and len(item) == 2:
-                    result.append({"code": item})
+                    code = item.upper()
+                    country_default = next((c for c in default if c["code"] == code), None)
+                    result.append(country_default or {"code": code})
                 # skip anything else (single chars from broken iteration)
             return result if result else default
 

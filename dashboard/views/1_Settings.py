@@ -46,16 +46,17 @@ def main():
         with col1:
             # Country selection
             all_countries = [
-                {"code": "DE", "name": "Germany", "language": "de"},
-                {"code": "NL", "name": "Netherlands", "language": "nl"},
-                {"code": "AT", "name": "Austria", "language": "de"},
-                {"code": "FR", "name": "France", "language": "fr"},
-                {"code": "BE", "name": "Belgium", "language": "nl"},
-                {"code": "CH", "name": "Switzerland", "language": "de"},
-                {"code": "ES", "name": "Spain", "language": "es"},
-                {"code": "IT", "name": "Italy", "language": "it"},
-                {"code": "PL", "name": "Poland", "language": "pl"},
-                {"code": "GB", "name": "United Kingdom", "language": "en"},
+                {"code": "DE", "name": "Germany", "language": "de", "currency": "EUR"},
+                {"code": "US", "name": "United States", "language": "en", "currency": "USD"},
+                {"code": "NL", "name": "Netherlands", "language": "nl", "currency": "EUR"},
+                {"code": "AT", "name": "Austria", "language": "de", "currency": "EUR"},
+                {"code": "FR", "name": "France", "language": "fr", "currency": "EUR"},
+                {"code": "BE", "name": "Belgium", "language": "nl", "currency": "EUR"},
+                {"code": "CH", "name": "Switzerland", "language": "de", "currency": "CHF"},
+                {"code": "ES", "name": "Spain", "language": "es", "currency": "EUR"},
+                {"code": "IT", "name": "Italy", "language": "it", "currency": "EUR"},
+                {"code": "PL", "name": "Poland", "language": "pl", "currency": "PLN"},
+                {"code": "GB", "name": "United Kingdom", "language": "en", "currency": "GBP"},
             ]
 
             # Extract country codes from config (now always returns list of dicts)
