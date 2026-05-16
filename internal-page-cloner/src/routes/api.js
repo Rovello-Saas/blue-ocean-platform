@@ -1445,9 +1445,9 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
 
     // ── Step 5: Publish ──
     console.log(`[${jobId}] Step 5: Publishing product...`);
-    const { productUrl, adminUrl } = await publishProduct(handle, storeId);
+    const { productUrl: publishedProductUrl, adminUrl } = await publishProduct(handle, storeId);
 
-    console.log(`[${jobId}] Product published: ${productUrl}`);
+    console.log(`[${jobId}] Product published: ${publishedProductUrl}`);
 
     updateJob(jobId, {
       progress: 92,
@@ -1509,7 +1509,7 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
       qaReport = { pass: true, errors: [], warnings: [`QA check failed to run: ${qaErr.message}`], info: [] };
     }
 
-    console.log(`[${jobId}] Done! ${productUrl}`);
+    console.log(`[${jobId}] Done! ${publishedProductUrl}`);
 
     // --- Cost summary: print + persist + attach to job ------------------
     costTracker.printSummary();
@@ -1523,7 +1523,7 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
         filename: liquidFilename,
         outputPath: liquidPath,
         handle,
-        productUrl,
+        productUrl: publishedProductUrl,
         adminUrl,
         productMeta: {
           title: productMeta.title,
