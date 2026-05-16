@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Optional
+from typing import Optional, Sequence
 
 import requests
 
@@ -139,6 +139,9 @@ class PageClonerClient:
         source_url: str,
         store: str,
         target_language: Optional[str] = None,
+        layout_mode: str = "source_clone",
+        product_url: Optional[str] = None,
+        research_urls: Optional[Sequence[str]] = None,
     ) -> str:
         """
         Kick off a clone job. Returns the server-assigned job ID immediately;
@@ -155,9 +158,17 @@ class PageClonerClient:
             PageClonerUnavailable  Node service unreachable.
             PageClonerError        Server returned 4xx/5xx.
         """
-        payload = {"url": source_url, "storeId": store}
+        payload = {
+            "url": source_url,
+            "storeId": store,
+            "layoutMode": layout_mode,
+        }
         if target_language:
             payload["targetLanguage"] = target_language
+        if product_url:
+            payload["productUrl"] = product_url
+        if research_urls:
+            payload["researchUrls"] = [u for u in research_urls if u]
 
         try:
             r = requests.post(
@@ -183,11 +194,12 @@ class PageClonerClient:
             raise PageClonerError(f"Page cloner response missing jobId: {data}")
 
         logger.info(
-            "Started page-cloner job %s (url=%s, store=%s, lang=%s)",
+            "Started page-cloner job %s (url=%s, store=%s, lang=%s, layout=%s)",
             job_id,
             source_url,
             store,
             target_language or "default",
+            layout_mode,
         )
         return job_id
 

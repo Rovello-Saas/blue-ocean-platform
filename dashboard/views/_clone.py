@@ -36,7 +36,20 @@ from src.page_cloner import (
 # here too (or, later, wire this to an endpoint that lists available stores).
 STORES = [
     {"id": "movanella", "name": "Movanella", "channel": "Google",   "flag": "🇺🇸"},
-    {"id": "merivalo",  "name": "Merivalo",  "channel": "Meta",     "flag": "🇩🇪"},
+    {"id": "merivalo",  "name": "Miravello", "channel": "Meta",     "flag": "🇩🇪"},
+]
+
+PDP_APPROACHES = [
+    {
+        "id": "source_clone",
+        "name": "Source-style clone",
+        "help": "Follows the competitor page layout and visual flow closely.",
+    },
+    {
+        "id": "brand_pdp",
+        "name": "Brand PDP template",
+        "help": "Uses our proven product-page structure, while researching content from the competitor and product links.",
+    },
 ]
 
 # Common target languages. "Auto" means: use the store's default language
@@ -200,11 +213,18 @@ def _render_recent_jobs(client: PageClonerClient) -> None:
         )
 
 
+def _approach_label(approach_id: str) -> str:
+    for approach in PDP_APPROACHES:
+        if approach["id"] == approach_id:
+            return approach["name"]
+    return approach_id
+
+
 def main() -> None:
     st.title("Clone a competitor page")
     st.caption(
         "Paste a competitor's product URL and we'll scrape, translate, "
-        "and publish it to the selected store."
+        "research, and publish it to the selected store."
     )
 
     # Health check up front — fail fast if the Node service isn't running.
@@ -254,7 +274,8 @@ def main() -> None:
         with st.container(border=True):
             st.markdown(
                 f"**Job `{active_job_id}`** — `{job.get('url', '')}`  "
-                f"→ store **{job.get('storeId')}**"
+                f"→ store **{job.get('storeId')}**  "
+                f"→ **{_approach_label(job.get('layoutMode', 'source_clone'))}**"
             )
             _render_progress(job)
 
@@ -280,9 +301,9 @@ def main() -> None:
     # --- Start-new-clone view ------------------------------------------------
     with st.form("clone_form", clear_on_submit=False):
         source_url = st.text_input(
-            "Competitor product URL",
+            "Competitor / reference product URL",
             placeholder="https://competitor.com/products/cool-pillow",
-            help="The source product page. We'll scrape the full DOM, images, and reviews.",
+            help="The source page. In Source-style mode we follow this page closely; in Brand PDP mode we use it as research and inspiration.",
         )
 
         col1, col2 = st.columns(2)
@@ -314,6 +335,44 @@ def main() -> None:
                 format_func=lambda c: dict(LANGUAGES)[c],
             )
 
+        approach = st.radio(
+            "PDP approach",
+            options=[a["id"] for a in PDP_APPROACHES],
+            format_func=_approach_label,
+            horizontal=True,
+            help=(
+                "Source-style clone follows the competitor page. "
+                "Brand PDP template uses our fixed high-converting product-page layout."
+            ),
+        )
+        selected_approach = next(a for a in PDP_APPROACHES if a["id"] == approach)
+        st.caption(selected_approach["help"])
+
+        product_url = ""
+        research_urls = []
+        if approach == "brand_pdp":
+            product_url = st.text_input(
+                "Product / supplier URL",
+                placeholder="https://www.aliexpress.us/item/...",
+                help=(
+                    "Optional but recommended. The cloner will scrape this too for product images, "
+                    "variants, specs, and source product details."
+                ),
+            )
+            research_input = st.text_area(
+                "Extra research URLs",
+                placeholder="https://competitor-one.com/products/...\nhttps://competitor-two.com/products/...",
+                help=(
+                    "Optional. Add one competitor or information page per line. "
+                    "The cloner uses these for benefits, features, specs, objections, and FAQs."
+                ),
+            )
+            research_urls = [
+                line.strip()
+                for line in research_input.splitlines()
+                if line.strip()
+            ]
+
         submitted = st.form_submit_button("Start clone", type="primary", use_container_width=True)
 
     if submitted:
@@ -325,6 +384,9 @@ def main() -> None:
                     source_url=source_url.strip(),
                     store=store,
                     target_language=lang_code or None,
+                    layout_mode=approach,
+                    product_url=product_url.strip() or None,
+                    research_urls=research_urls,
                 )
             except PageClonerUnavailable as e:
                 st.error(str(e))

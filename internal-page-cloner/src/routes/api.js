@@ -114,10 +114,33 @@ function updateJob(jobId, updates) {
   fs.writeFileSync(path.join(jobDir, 'job.json'), JSON.stringify(jobs[jobId], null, 2));
 }
 
-function createCloneJob({ url, storeId = 'movanella', targetLanguage = null }) {
+function normalizeLayoutMode(layoutMode) {
+  return layoutMode === 'brand_pdp' ? 'brand_pdp' : 'source_clone';
+}
+
+function normalizeUrlList(urls, cap = 4) {
+  if (!Array.isArray(urls)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const raw of urls) {
+    const value = String(raw || '').trim();
+    if (!/^https?:\/\//i.test(value)) continue;
+    const key = value.replace(/[?#].*$/, '').toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(value);
+    if (out.length >= cap) break;
+  }
+  return out;
+}
+
+function createCloneJob({ url, storeId = 'movanella', targetLanguage = null, layoutMode = 'source_clone', productUrl = null, researchUrls = [] }) {
   const store = ['movanella', 'merivalo'].includes(storeId) ? storeId : 'movanella';
   // Validate targetLanguage — must be a known language code or empty
   const lang = (targetLanguage && LANGUAGE_NAMES[targetLanguage]) ? targetLanguage : null;
+  const mode = normalizeLayoutMode(layoutMode);
+  const normalizedProductUrl = productUrl && /^https?:\/\//i.test(productUrl) ? productUrl : null;
+  const normalizedResearchUrls = normalizeUrlList(researchUrls, 4);
   const jobId = uuidv4().substring(0, 8);
   const jobDir = path.join(JOBS_DIR, jobId);
   fs.mkdirSync(jobDir, { recursive: true });
@@ -135,8 +158,11 @@ function createCloneJob({ url, storeId = 'movanella', targetLanguage = null }) {
   jobs[jobId] = {
     id: jobId,
     url,
+    productUrl: normalizedProductUrl,
+    researchUrls: normalizedResearchUrls,
     storeId: store,
     targetLanguage: lang,
+    layoutMode: mode,
     status: 'scraping',
     progress: 0,
     steps,
@@ -148,12 +174,16 @@ function createCloneJob({ url, storeId = 'movanella', targetLanguage = null }) {
 
   fs.writeFileSync(path.join(jobDir, 'job.json'), JSON.stringify(jobs[jobId], null, 2));
 
-  runPipeline(jobId, url, jobDir, store, lang).catch(err => {
+  runPipeline(jobId, url, jobDir, store, lang, {
+    layoutMode: mode,
+    productUrl: normalizedProductUrl,
+    researchUrls: normalizedResearchUrls
+  }).catch(err => {
     console.error(`Job ${jobId} failed:`, err);
     updateJob(jobId, { status: 'failed', error: err.message });
   });
 
-  return { jobId, status: 'scraping', storeId: store, targetLanguage: lang };
+  return { jobId, status: 'scraping', storeId: store, targetLanguage: lang, layoutMode: mode, productUrl: normalizedProductUrl, researchUrls: normalizedResearchUrls };
 }
 
 function normalizeImageUrl(src) {
@@ -408,12 +438,69 @@ function stripRejectedImageReferences(liquidContent, rejectedSourceUrls) {
   return { liquidContent: out, stripped };
 }
 
+function sameUrl(a, b) {
+  try {
+    const ua = new URL(a);
+    const ub = new URL(b);
+    return `${ua.hostname}${ua.pathname}`.toLowerCase() === `${ub.hostname}${ub.pathname}`.toLowerCase();
+  } catch (e) {
+    return false;
+  }
+}
+
+function mergeImageLists(primaryImages = [], supplierImages = []) {
+  const merged = [];
+  const seen = new Set();
+  const add = (img, sourcePageType = '') => {
+    if (!img?.src) return;
+    const key = imageDedupeKey(img.src);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    merged.push({
+      ...img,
+      sourceRole: img.sourceRole || 'image',
+      sourcePageType
+    });
+  };
+  // In Brand PDP mode the supplier/product link is the product truth, so its
+  // images should lead the Shopify gallery. The competitor/reference images
+  // still feed the content/research path.
+  supplierImages.forEach(img => add(img, 'supplier'));
+  primaryImages.forEach(img => add(img, 'reference'));
+  return merged;
+}
+
+function mergeProductMetaForBrandPdp(referenceMeta, supplierMeta, productUrl, referenceUrl = null) {
+  if (!supplierMeta) return referenceMeta;
+  const merged = { ...referenceMeta };
+  merged.title = referenceMeta.title || supplierMeta.title || 'Product';
+  merged.price = referenceMeta.price || supplierMeta.price || '';
+  merged.compareAtPrice = referenceMeta.compareAtPrice || supplierMeta.compareAtPrice || null;
+  merged.currency = referenceMeta.currency || supplierMeta.currency || 'USD';
+  merged.description = [
+    referenceMeta.description ? `Reference page: ${referenceMeta.description}` : '',
+    supplierMeta.description ? `Supplier/product page: ${supplierMeta.description}` : ''
+  ].filter(Boolean).join('\n\n') || referenceMeta.description || supplierMeta.description || '';
+  merged.variants = (supplierMeta.variants && supplierMeta.variants.length > 1)
+    ? supplierMeta.variants
+    : (referenceMeta.variants || supplierMeta.variants || []);
+  merged.images = mergeImageLists(referenceMeta.images || [], supplierMeta.images || []);
+  merged.productResearch = {
+    mode: 'brand_pdp',
+    productUrl,
+    referenceUrl,
+    referenceMeta,
+    supplierMeta
+  };
+  return merged;
+}
+
 // POST /api/jobs - Start a clone job
 router.post('/jobs', (req, res) => {
-  const { url, storeId, targetLanguage } = req.body;
+  const { url, storeId, targetLanguage, layoutMode, productUrl, researchUrls } = req.body;
   if (!url) return res.status(400).json({ error: 'URL is required' });
 
-  res.json(createCloneJob({ url, storeId, targetLanguage }));
+  res.json(createCloneJob({ url, storeId, targetLanguage, layoutMode, productUrl, researchUrls }));
 });
 
 // Clone-only endpoints for dashboards that should bypass product research.
@@ -436,8 +523,11 @@ router.get('/jobs', (req, res) => {
   const jobList = Object.values(jobs).map(j => ({
     id: j.id,
     url: j.url,
+    productUrl: j.productUrl,
+    researchUrls: j.researchUrls,
     storeId: j.storeId,
     targetLanguage: j.targetLanguage,
+    layoutMode: j.layoutMode,
     status: j.status,
     progress: j.progress,
     createdAt: j.createdAt,
@@ -514,8 +604,11 @@ router.get('/costs/recent', (req, res) => {
  * Main pipeline: scrape → generate → create → push → publish
  * Fully automated — no manual steps needed.
  */
-async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLanguage = null) {
+async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLanguage = null, options = {}) {
   let browser;
+  const layoutMode = normalizeLayoutMode(options.layoutMode);
+  const productUrl = options.productUrl || null;
+  const researchUrls = normalizeUrlList(options.researchUrls || [], 4);
 
   // Cost tracker — one per clone job. Records fal.ai image translations
   // (the biggest cost driver) today; Claude text calls will be wired in
@@ -529,7 +622,7 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
 
   try {
     // ── Step 1: Scrape ──
-    console.log(`[${jobId}] Step 1: Scraping ${url} (store: ${storeId})...`);
+    console.log(`[${jobId}] Step 1: Scraping ${url} (store: ${storeId}, layout: ${layoutMode})...`);
     updateJob(jobId, { status: 'scraping', progress: 5 });
 
     const { page, browser: br, screenshotPath } = await scrapePage(url, jobDir);
@@ -545,7 +638,7 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
 
     // Extract product metadata
     console.log(`[${jobId}] Extracting product metadata...`);
-    const productMeta = await extractProductMeta(page);
+    let productMeta = await extractProductMeta(page);
     console.log(`[${jobId}]   Title: ${productMeta.title}`);
     console.log(`[${jobId}]   Price: ${productMeta.price}`);
     console.log(`[${jobId}]   Images: ${productMeta.images.length}`);
@@ -553,6 +646,70 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
 
     await browser.close().catch(() => {});
     browser = null;
+
+    let supplierMeta = null;
+    let supplierSections = [];
+    let supplierScreenshotPath = null;
+    const extraResearch = [];
+    if (layoutMode === 'brand_pdp' && productUrl && !sameUrl(productUrl, url)) {
+      let supplierBrowser;
+      const supplierDir = path.join(jobDir, 'product-source');
+      fs.mkdirSync(supplierDir, { recursive: true });
+      try {
+        console.log(`[${jobId}] Brand PDP mode: scraping product/supplier URL ${productUrl}...`);
+        updateJob(jobId, { progress: 14 });
+        const supplierScrape = await scrapePage(productUrl, supplierDir);
+        supplierBrowser = supplierScrape.browser;
+        supplierScreenshotPath = supplierScrape.screenshotPath;
+        supplierSections = analyzeImages(await extractSections(supplierScrape.page));
+        supplierMeta = await extractProductMeta(supplierScrape.page);
+        await supplierBrowser.close().catch(() => {});
+        supplierBrowser = null;
+        console.log(`[${jobId}]   Supplier title: ${supplierMeta.title}`);
+        console.log(`[${jobId}]   Supplier images: ${supplierMeta.images.length}`);
+        productMeta = mergeProductMetaForBrandPdp(productMeta, supplierMeta, productUrl, url);
+      } catch (supplierErr) {
+        if (supplierBrowser) await supplierBrowser.close().catch(() => {});
+        console.warn(`[${jobId}]   Product/supplier scrape failed (continuing with reference page only): ${supplierErr.message}`);
+      }
+    } else if (layoutMode === 'brand_pdp') {
+      productMeta.productResearch = {
+        mode: 'brand_pdp',
+        productUrl: productUrl || url,
+        referenceUrl: url,
+        referenceMeta: productMeta,
+        supplierMeta: null
+      };
+    }
+
+    if (layoutMode === 'brand_pdp' && researchUrls.length) {
+      for (let i = 0; i < researchUrls.length; i++) {
+        const researchUrl = researchUrls[i];
+        if (sameUrl(researchUrl, url) || (productUrl && sameUrl(researchUrl, productUrl))) continue;
+        let researchBrowser;
+        const researchDir = path.join(jobDir, `research-${i + 1}`);
+        fs.mkdirSync(researchDir, { recursive: true });
+        try {
+          console.log(`[${jobId}] Brand PDP mode: scraping extra research URL ${researchUrl}...`);
+          updateJob(jobId, { progress: Math.min(18, 15 + i) });
+          const researchScrape = await scrapePage(researchUrl, researchDir);
+          researchBrowser = researchScrape.browser;
+          const researchSections = analyzeImages(await extractSections(researchScrape.page));
+          const researchMeta = await extractProductMeta(researchScrape.page);
+          await researchBrowser.close().catch(() => {});
+          researchBrowser = null;
+          extraResearch.push({
+            url: researchUrl,
+            meta: researchMeta,
+            sections: researchSections
+          });
+          console.log(`[${jobId}]   Research page: ${researchMeta.title || '(untitled)'} (${researchSections.length} section(s))`);
+        } catch (researchErr) {
+          if (researchBrowser) await researchBrowser.close().catch(() => {});
+          console.warn(`[${jobId}]   Extra research scrape failed (${researchUrl}): ${researchErr.message}`);
+        }
+      }
+    }
 
     // Perceptual-hash dedup — drops near-duplicate gallery images that
     // slipped past the URL-based dedup in the scraper (e.g. the same
@@ -607,7 +764,17 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
     for (const [src, purpose] of classifications) {
       policiesByUrl.set(src, { ...policyFor(purpose), purpose });
     }
-    const sourceBrandTerms = deriveSourceBrandTerms(url);
+    const sourceBrandTerms = deriveSourceBrandTerms(url, [
+      productUrl,
+      ...researchUrls
+    ].filter(Boolean).flatMap(u => {
+      try {
+        const host = new URL(u).hostname.replace(/^www\./, '');
+        return [host.split('.')[0]];
+      } catch (e) {
+        return [];
+      }
+    }));
     console.log(`[${jobId}]   Source-brand terms blocked in copy/images: ${sourceBrandTerms.join(', ') || 'none'}`);
 
     const droppedFromOutput = [];
@@ -668,6 +835,17 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
 
     // Save extracted data
     fs.writeFileSync(path.join(jobDir, 'sections.json'), JSON.stringify(sections, null, 2));
+    if (supplierSections.length || supplierMeta) {
+      fs.writeFileSync(path.join(jobDir, 'product-source-sections.json'), JSON.stringify(supplierSections, null, 2));
+      fs.writeFileSync(path.join(jobDir, 'product-source-meta.json'), JSON.stringify(supplierMeta, null, 2));
+    }
+    if (extraResearch.length) {
+      fs.writeFileSync(path.join(jobDir, 'extra-research.json'), JSON.stringify(extraResearch.map(item => ({
+        url: item.url,
+        meta: item.meta,
+        sections: item.sections
+      })), null, 2));
+    }
     fs.writeFileSync(path.join(jobDir, 'product-meta.json'), JSON.stringify(productMeta, null, 2));
 
     updateJob(jobId, {
@@ -677,7 +855,14 @@ async function runPipeline(jobId, url, jobDir, storeId = 'movanella', targetLang
 
     // ── Step 2: Generate liquid content ──
     console.log(`[${jobId}] Step 2: AI generating full liquid content (lang: ${targetLanguage || 'store default'})...`);
-    let liquidContent = await generateFullLiquid(productMeta, sections, screenshotPath, storeId, targetLanguage);
+    let liquidContent = await generateFullLiquid(productMeta, sections, screenshotPath, storeId, targetLanguage, {
+      layoutMode,
+      productUrl,
+      supplierMeta,
+      supplierSections,
+      extraResearch,
+      supplierScreenshotPath
+    });
     console.log(`[${jobId}]   Generated ${liquidContent.length} chars of liquid`);
 
     // Save liquid file

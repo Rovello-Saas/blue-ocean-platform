@@ -74,7 +74,7 @@ function convertPriceString(input, currency) {
   return `${currency.symbol}${converted}`;
 }
 
-function getSystemPrompt(storeId, targetLanguage) {
+function getSystemPrompt(storeId, targetLanguage, layoutMode = 'source_clone') {
   const storeConfig = {
     movanella: {
       name: 'Movanella', domain: 'movanella.com',
@@ -89,6 +89,70 @@ function getSystemPrompt(storeId, targetLanguage) {
   // Override language if explicitly requested
   if (targetLanguage && LANGUAGE_LABELS[targetLanguage]) {
     store.lang = LANGUAGE_LABELS[targetLanguage];
+  }
+
+  if (layoutMode === 'brand_pdp') {
+    return `You are a senior Shopify PDP strategist and designer for the ${store.name} store. You create complete, production-ready custom Liquid content sections for product pages.
+
+Brand: ${store.name} (${store.domain})
+Language: ${store.lang}
+
+This job is NOT a 1-to-1 page clone. It is a researched ${store.name} product page using our fixed high-converting PDP structure.
+
+## CORE OBJECTIVE
+
+Use the reference competitor page, supplier/product page, screenshot, scraped section blueprint, product metadata, and image list as research inputs. Build an original ${store.name} PDP body that:
+- Uses ${store.name}'s own page structure and wording.
+- Uses the supplier/product images when available for the product gallery and content.
+- Learns facts, benefits, use cases, features, specs, and objections from competitor pages.
+- Rewrites all copy from scratch so it is copyright-safe and brand-safe.
+- Replaces every source brand mention with "${store.name}" or generic product wording.
+
+## FIXED BRAND PDP STRUCTURE
+
+Your output starts BELOW the Shopify hero/buy-box. Do not recreate the product hero, price, bundle picker, variant picker, or add-to-cart form.
+
+Emit these body sections in this order when the data supports them:
+1. Outcome-led intro strip: 3-5 compact benefit tiles.
+2. Main benefits section: a clean grid of customer outcomes.
+3. Product / technology section: what the product does and why the mechanism matters.
+4. How to use: 3-4 steps, practical and specific.
+5. Feature/spec section: materials, settings, controls, size, safety, maintenance, included items.
+6. Comparison section: ${store.name} versus ordinary alternatives or expensive sessions, without naming source competitors.
+7. Results / expectation section: realistic routine-based outcomes, no fake clinical numbers.
+8. Safety and trust section: practical cautions, comfort, warranty/returns/shipping if supported by source facts.
+9. FAQ accordion: 6-9 questions based on buyer objections and product use.
+
+For an infrared sauna blanket, prioritize these research topics when present:
+- Far-infrared warmth, sweat support, relaxation, muscle comfort, post-workout recovery, circulation/comfort language.
+- Temperature range, session length, timers, layers/materials, waterproof/cleanable inner layer, controller, portability/storage.
+- How to use safely: hydrate, start low, wear clothing or use towel barrier, wipe clean, do not use when contraindicated.
+- Avoid medical-cure claims. Use "supports", "helps you feel", "designed for", "can help with" rather than disease claims.
+
+## RESEARCH AND COPYRIGHT RULES
+
+- Do not copy competitor sentences. Rewrite and reframe all text.
+- Do not preserve the competitor's section names unless they are generic.
+- Do not use source brand names in visible copy.
+- Do not invent certifications, FDA/medical claims, clinical percentages, review counts, awards, or guaranteed results.
+- If exact technical specs are present, keep them as specs. If specs are uncertain, phrase them generically.
+- If supplier data conflicts with competitor data, prefer conservative language or omit the claim.
+- Keep claims ecommerce-safe and Google Merchant Center-safe.
+
+## DESIGN RULES
+
+- Use a polished wellness / home-spa PDP style: premium, calm, high contrast, spacious but not oversized.
+- Do not mimic the competitor's layout exactly. The page must look like ${store.name}'s own template.
+- Use one coherent accent color from the source/product palette. For sauna/wellness products, warm burgundy, clay, rose, charcoal, cream, or soft taupe usually fit. Avoid bright green unless the product/source truly uses it.
+- Images must never sit in giant empty boxes. Image wrappers hug the image and use natural proportions.
+- Content-card images: width 100%, height auto, object-fit contain, white/cream background.
+- Do not use 100vh poster sections, massive hero-like blocks, or sections with large empty vertical whitespace.
+- Mobile breakpoint: @media (max-width: 749px).
+- Output a complete file with one <style> block, one wrapper div using a unique 2-4 character CSS prefix, and one <script> block for FAQ accordion/interactions.
+
+## REQUIRED OUTPUT FORMAT
+
+Return ONLY raw HTML/CSS/JS. No markdown. No explanation.`;
   }
 
   return `You are a Shopify page-cloning designer for the ${store.name} store. You create complete, production-ready custom Liquid content sections for product pages.
@@ -226,9 +290,14 @@ Return ONLY the raw HTML/CSS/JS code. No markdown code fences. No explanation te
  * Generate a complete custom liquid content file for a product.
  * Single AI call that produces the entire file.
  */
-async function generateFullLiquid(productMeta, sections, screenshotPath, storeId = 'movanella', targetLanguage = null) {
+async function generateFullLiquid(productMeta, sections, screenshotPath, storeId = 'movanella', targetLanguage = null, options = {}) {
   const storeNames = { movanella: 'Movanella', merivalo: 'Merivalo' };
   const storeName = storeNames[storeId] || 'Movanella';
+  const layoutMode = options.layoutMode === 'brand_pdp' ? 'brand_pdp' : 'source_clone';
+  const supplierMeta = options.supplierMeta || null;
+  const supplierSections = options.supplierSections || [];
+  const extraResearch = Array.isArray(options.extraResearch) ? options.extraResearch : [];
+  const productUrl = options.productUrl || productMeta.productResearch?.productUrl || null;
 
   // Convert source USD prices to the target market's currency before feeding
   // them to the AI. The source pages we clone (e.g. Solawave) are USD; the
@@ -354,11 +423,16 @@ async function generateFullLiquid(productMeta, sections, screenshotPath, storeId
   //    Raise cap from 8 → 25 so sleep-position photos / size guides / callouts
   //    that sit later in the gallery actually reach the liquid generator.
   (productMeta.images || []).slice(0, 25).forEach(img => {
+    const pageType = img.sourcePageType === 'supplier'
+      ? 'SUPPLIER / PRODUCT SOURCE '
+      : img.sourcePageType === 'reference'
+        ? 'REFERENCE PAGE '
+        : '';
     const role = img.sourceRole === 'product-media-gallery'
-      ? 'PRODUCT MEDIA CAROUSEL / product-card thumbnail'
+      ? `${pageType}PRODUCT MEDIA CAROUSEL / product-card thumbnail`
       : img.sourceRole === 'product-structured-data'
-        ? 'PRODUCT STRUCTURED DATA / product-card image'
-        : 'PRODUCT GALLERY / product-card image';
+        ? `${pageType}PRODUCT STRUCTURED DATA / product-card image`
+        : `${pageType}PRODUCT GALLERY / product-card image`;
     pushImage(img, role);
   });
 
@@ -370,6 +444,22 @@ async function generateFullLiquid(productMeta, sections, screenshotPath, storeId
     if (availableImagesWithLabels.length >= 42) return;
     (s.images || []).slice(0, 2).forEach(img => {
       pushImage(img, `SOURCE SECTION ${s.index}`);
+    });
+  });
+
+  supplierSections.slice(0, 10).forEach(s => {
+    if (availableImagesWithLabels.length >= 52) return;
+    (s.images || []).slice(0, 2).forEach(img => {
+      pushImage(img, `PRODUCT / SUPPLIER SECTION ${s.index}`);
+    });
+  });
+
+  extraResearch.slice(0, 4).forEach((research, researchIndex) => {
+    (research.sections || []).slice(0, 6).forEach(s => {
+      if (availableImagesWithLabels.length >= 60) return;
+      (s.images || []).slice(0, 1).forEach(img => {
+        pushImage(img, `EXTRA RESEARCH ${researchIndex + 1} SECTION ${s.index}`);
+      });
     });
   });
 
@@ -393,7 +483,73 @@ async function generateFullLiquid(productMeta, sections, screenshotPath, storeId
   const beforeAfterAssets = findBeforeAfterImages(availableImagesWithLabels);
   const productCardAssets = findProductCardVisualAssets(availableImagesWithLabels);
 
+  const supplierSectionSummary = supplierSections.slice(0, 10).map(s => ({
+    sourceIndex: s.index,
+    className: s.className,
+    headingsText: (s.headings || [])
+      .map(h => (typeof h === 'string' ? h : h.text || ''))
+      .filter(Boolean)
+      .slice(0, 6),
+    paragraphsText: capParagraphsToTotal((s.paragraphs || []).slice(0, 6), 1600),
+    bullets: (s.bullets || []).slice(0, 12),
+    numbersInSection: extractNumbersFromSection(s),
+    images: (s.images || []).slice(0, 4).map(img => ({
+      label: labelFor(img),
+      src: img.src,
+      sourceRole: img.sourceRole || null,
+      displaySize: `${img.displayWidth || 0}x${img.displayHeight || 0}`,
+      ratio: img.ratio || null,
+      ratioClass: img.ratioClass || null,
+      isBackground: !!img.isBackground
+    }))
+  }));
+
+  const extraResearchSummary = extraResearch.slice(0, 4).map((research, researchIndex) => ({
+    sourceIndex: researchIndex,
+    url: research.url,
+    meta: research.meta ? {
+      title: research.meta.title,
+      price: research.meta.price,
+      description: research.meta.description?.substring(0, 800),
+      imageCount: research.meta.images?.length || 0
+    } : null,
+    sections: (research.sections || []).slice(0, 8).map(s => ({
+      sourceIndex: s.index,
+      headingsText: (s.headings || [])
+        .map(h => (typeof h === 'string' ? h : h.text || ''))
+        .filter(Boolean)
+        .slice(0, 5),
+      paragraphsText: capParagraphsToTotal((s.paragraphs || []).slice(0, 5), 1200),
+      bullets: (s.bullets || []).slice(0, 10),
+      numbersInSection: extractNumbersFromSection(s)
+    }))
+  }));
+
+  const modeInstructions = layoutMode === 'brand_pdp'
+    ? `## PDP APPROACH
+Brand PDP template mode.
+- Use the reference competitor page and supplier/product page as research sources.
+- Do NOT mirror the competitor's section order or visual composition 1-to-1.
+- Build the fixed ${storeName} PDP structure from the system prompt.
+- Rewrite all copy from scratch, copyright-safe, with ${storeName} branding.
+- Prefer supplier/product-link images for product visuals when available; use competitor/reference images only when they are generic product/lifestyle visuals and safe after image editing.
+- Focus on useful buyer information: benefits, features, specs, how to use, safety, comparisons, and FAQs.`
+    : `## PDP APPROACH
+Source-style clone mode.
+- Closely recreate the source page's body section flow and visual direction.
+- Translate/localize source copy faithfully while removing source-brand names.`;
+
+  const sourceBlueprintGuidance = layoutMode === 'brand_pdp'
+    ? `This blueprint is research input, not a layout contract. Use it to understand benefits, features, objections, specs, and useful image context, then rebuild the page in the fixed Brand PDP template structure from the system prompt.`
+    : `This blueprint is a HARD REQUIREMENT, not a recommendation. Every entry below should become a corresponding section in your output unless it is obviously site chrome (nav, footer, cookie banner, related-products). Do not collapse 4-card grids, 3-step how-tos, or expert-card rows into single content-rows. Do not stop at 10 sections — match the blueprint count.`;
+
+  const finalInstruction = layoutMode === 'brand_pdp'
+    ? `Now generate the complete Brand PDP template body for "${productMeta.title}". Use the fixed structure, researched benefits/specs, copyright-safe rewritten copy, unique CSS prefix, mobile responsive CSS, and FAQ JavaScript.`
+    : `Now generate the complete file for "${productMeta.title}". Remember: unique CSS prefix, all sections, mobile responsive, FAQ JavaScript.`;
+
   const userMessage = `Create a complete ${storeName} product page liquid file for this product.
+
+${modeInstructions}
 
 ## PRODUCT METADATA
 - Title: ${productMeta.title}
@@ -401,11 +557,34 @@ async function generateFullLiquid(productMeta, sections, screenshotPath, storeId
 - Compare-at Price: ${productMeta.compareAtPrice || 'N/A'}
 - Description: ${productMeta.description?.substring(0, 500) || 'N/A'}
 - Variants: ${JSON.stringify(productMeta.variants?.slice(0, 5) || [])}
+- Reference URL: ${productMeta.productResearch?.referenceUrl || 'source URL provided in job'}
+- Product / supplier URL: ${productUrl || 'not provided'}
 
-## SOURCE SECTION BLUEPRINT (${sectionSummary.length} entries — emit one rendered section per entry, in this order)
-This blueprint is a HARD REQUIREMENT, not a recommendation. Every entry below should become a corresponding section in your output unless it is obviously site chrome (nav, footer, cookie banner, related-products). Do not collapse 4-card grids, 3-step how-tos, or expert-card rows into single content-rows. Do not stop at 10 sections — match the blueprint count.
+## SUPPLIER / PRODUCT PAGE METADATA
+${supplierMeta ? JSON.stringify({
+  title: supplierMeta.title,
+  price: supplierMeta.price,
+  compareAtPrice: supplierMeta.compareAtPrice,
+  currency: supplierMeta.currency,
+  description: supplierMeta.description?.substring(0, 1000),
+  variants: supplierMeta.variants?.slice(0, 10),
+  imageCount: supplierMeta.images?.length || 0
+}, null, 2) : 'No separate supplier/product page was scraped.'}
+
+## SOURCE SECTION BLUEPRINT (${sectionSummary.length} entries)
+${sourceBlueprintGuidance}
 
 ${JSON.stringify(sectionSummary, null, 2)}
+
+## SUPPLIER / PRODUCT PAGE RESEARCH BLUEPRINT (${supplierSectionSummary.length} entries)
+Use this as additional product research, specs, image context, and variant/detail evidence. In Brand PDP template mode, this is especially important. Do not copy supplier wording directly.
+
+${supplierSectionSummary.length ? JSON.stringify(supplierSectionSummary, null, 2) : 'No separate supplier/product page sections available.'}
+
+## EXTRA COMPETITOR / RESEARCH PAGES (${extraResearchSummary.length})
+Use these pages as additional research for benefits, features, specs, objections, comparison angles, and FAQs. Rewrite everything; do not copy competitor wording.
+
+${extraResearchSummary.length ? JSON.stringify(extraResearchSummary, null, 2) : 'No extra research pages provided.'}
 
 ## SOURCE DESIGN PROFILE
 ${sourceDesign.instructions}
@@ -440,11 +619,11 @@ Here is the HTML structure of a previous product page we built. Use it only for 
 
 ${referenceSnippet.substring(0, 4000)}
 
-Now generate the complete file for "${productMeta.title}". Remember: unique CSS prefix, all sections, mobile responsive, FAQ JavaScript.`;
+${finalInstruction}`;
 
   console.log(`  [AI] Generating full liquid content...`);
   const response = await callClaudeWithImage(
-    getSystemPrompt(storeId, targetLanguage),
+    getSystemPrompt(storeId, targetLanguage, layoutMode),
     screenshotBase64,
     userMessage,
     { maxTokens: 32000 }
